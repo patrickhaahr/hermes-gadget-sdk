@@ -40,7 +40,9 @@ Before flashing, use **Custom pins** in menuconfig to try a wiring without writi
 
 ## A different display
 
-Two display adapters ship: `SpiDisplay` (ST7789 and ILI9342 variants over SPI) and `AmoledDisplay` (CO5300 over QSPI, for round AMOLED modules). For a round panel set `round` in the board config: the UI then keeps to the square inside the circle. BOX-3 uses the managed TT21100/GT911 touch drivers. Its LCD and touch share one reset line, so initialize the display before touch. CoreS3 uses FT5x06 for touch and detects the LCD revision through its firmware ID.
+Four display configurations ship: `SpiDisplay` supports ST7789 and ILI9342 variants over SPI; `ParallelDisplay` supports the ST7789 over an 8-bit I80 parallel bus; `AmoledDisplay` supports CO5300 over QSPI, including round AMOLED modules. For a round panel set `round` in the board config: the UI then keeps to the square inside the circle. BOX-3 uses the managed TT21100/GT911 touch drivers. Its LCD and touch share one reset line, so initialize the display before touch. CoreS3 uses FT5x06 for touch and detects the LCD revision through its firmware ID.
+
+`ParallelDisplay` is the T-Display-S3 reference. It holds the panel’s active-low RD input, GPIO9, high, configures an 8-bit bus with `esp_lcd_new_i80_bus()`, creates its I80 panel IO with `esp_lcd_new_panel_io_i80()`, and attaches the ST7789 using `esp_lcd_new_panel_st7789()`. Panel reset, initialization, inversion, axis swap, mirroring, address gap and display enable use the `esp_lcd_panel_*` operations; the board-specific ST7789 power/gamma registers are sent through `esp_lcd_panel_io_tx_param()`. Frame rows are transferred through the I80 panel IO in DMA-capable chunks. The T-Display-S3 backlight uses an AW9364 one-wire pulse-counter protocol on its backlight GPIO, not LEDC PWM: drive low for 3 ms to turn it off; drive high to wake/enable it, then send clock pulses to select one of 16 brightness steps. The port maps requested brightness to those steps.
 
 Implement `hg::Display` (`firmware/core/include/hg/hal.hpp`):
 
