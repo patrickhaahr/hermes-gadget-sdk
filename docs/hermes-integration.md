@@ -73,7 +73,13 @@ Secrets go in `~/.hermes/.env`, following Hermes's rule that `.env` is only for 
 | Tool session context | `gateway.session_context.get_session_env` | `HERMES_SESSION_PLATFORM` / `HERMES_SESSION_CHAT_ID` pick the default device |
 | Durable state | `plugins.plugin_storage.plugin_data_dir("gadget")` | Enrolled device keys, pending pairing codes, and firmware staged for updates (`updates/`) |
 | Host CLI | `ctx.register_cli_command("gadget", ...)` | `hermes gadget devices / forget / info / pair / update`. `pair` waits for a device to show a code and approves it after asking. `update` stages an image in the plugin's data directory (a file, or with `--latest` the newest release's image for the device's board, checked against the release manifest); the gateway's adapter installs it once the device is online and writes progress back for the command |
-| Send and cron targets | `parse_target_ref_fn` | `gadget:hg-0123456789abcdef` works with send_message and cron delivery |
+| Send and cron targets | `parse_target_ref_fn`, `cron_deliver_env_var` | `gadget:hg-0123456789abcdef` works with send_message and cron delivery; `GADGET_HOME_CHANNEL` supplies a default cron device |
+
+### Scheduled delivery
+
+Set a cron job's `deliver` to `gadget:hg-0123456789abcdef`, replacing the example ID with one from `hermes gadget devices`. The gadget must be paired and online, with the gateway running, to receive the scheduled message.
+
+To use `deliver="gadget"`, configure the gadget home channel. By default, `auto_home: true` makes the first approved device the home channel. An explicit `GADGET_HOME_CHANNEL` device ID in the profile's `.env` overrides that default. A target with an explicit device ID does not require this environment variable.
 
 ### Voice round trip
 
