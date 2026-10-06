@@ -314,13 +314,14 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
         except ota.UpdateError as exc:
             # A device that dropped off gets the image again when it's back, a few times.
             retry = exc.code in ota.RETRY_CODES and queue.count_attempt(session.device_id) < ota.MAX_ATTEMPTS
-            queue.report(session.device_id, state="retrying" if retry else "failed", code=exc.code, error=exc.message)
+            # Drop before the final report: whoever reads "failed" or "done" finds nothing staged.
             if not retry:
                 queue.drop(session.device_id)
+            queue.report(session.device_id, state="retrying" if retry else "failed", code=exc.code, error=exc.message)
             logger.warning("[%s] firmware update for %s failed: %s", self.name, session.device_id, exc.message)
             return
-        queue.report(session.device_id, state="done", version=version)
         queue.drop(session.device_id)
+        queue.report(session.device_id, state="done", version=version)
         logger.info("[%s] %s installed firmware %s", self.name, session.device_id, version)
 
     async def _claim_home(self, session: DeviceSession) -> None:

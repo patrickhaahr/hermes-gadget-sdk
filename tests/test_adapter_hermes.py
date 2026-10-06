@@ -468,16 +468,34 @@ def _staging(monkeypatch, tmp_path):
     return ota.UpdateQueue(tmp_path / "plugin-data" / "gadget")
 
 
+def _staged_at_final_report(monkeypatch):
+    """What was still staged when the gateway reported "done" or "failed"."""
+    from hermes_gadget_plugin import ota
+
+    seen = {}
+    report = ota.UpdateQueue.report
+
+    def recording(self, device_id, **status):
+        if status.get("state") in ("done", "failed"):
+            seen[status["state"]] = self.pending()
+        report(self, device_id, **status)
+
+    monkeypatch.setattr(ota.UpdateQueue, "report", recording)
+    return seen
+
+
 def test_staged_firmware_is_installed_once_the_device_is_online(gadget, make_sim, monkeypatch, tmp_path):
     from fakes.fake_firmware import fake_image
     from hermes_gadget_plugin import ota
 
     queue = _staging(monkeypatch, tmp_path)
+    staged = _staged_at_final_report(monkeypatch)
     sim = _paired_sim(gadget, make_sim, name="Desk")
     device_id = sim.status()["device_id"]
     image = ota.inspect_image(fake_image(board=sim.board.name, version="0.2.0"))
     queue.stage(device_id, image)
     assert sim.wait_for(lambda: (queue.status(device_id) or {}).get("state") == "done", timeout=30)
+    assert staged["done"] == []  # whoever reads "done" finds nothing left to install
     assert queue.status(device_id)["version"] == "0.2.0"
     assert sim.update_image == image.data
     assert queue.pending() == []  # installed once, not again after the restart
@@ -492,10 +510,12 @@ def test_staged_firmware_the_device_refuses_is_dropped(gadget, make_sim, monkeyp
     from hermes_gadget_plugin import ota
 
     queue = _staging(monkeypatch, tmp_path)
+    staged = _staged_at_final_report(monkeypatch)
     sim = _paired_sim(gadget, make_sim, name="Desk")
     device_id = sim.status()["device_id"]
     queue.stage(device_id, ota.inspect_image(fake_image(board="esp32s3-breadboard")))
     assert sim.wait_for(lambda: (queue.status(device_id) or {}).get("state") == "failed", timeout=30)
+    assert staged["failed"] == []
     status = queue.status(device_id)
     assert status["code"] == "wrong_board" and "built for esp32s3-breadboard" in status["error"]
     assert queue.pending() == [] and sim.update_image is None
