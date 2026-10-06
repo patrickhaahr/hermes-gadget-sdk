@@ -165,8 +165,9 @@ void TouchInput::task(void* arg) {
       fault.valid();
       // Every sample while the finger is down (gestures need the motion), plus the lift.
       if (s.touching || was_touching) {
-        // Keep the delivered state until enqueue succeeds, including a lift.
-        if (events::post(EventType::Touch, &s, sizeof(s))) was_touching = s.touching;
+        const bool posted = events::post(EventType::Touch, &s, sizeof(s));
+        // CST816: keep the delivered state until enqueue succeeds, including a lift.
+        if (posted || self->touch_.controller != TouchController::Cst816) was_touching = s.touching;
       }
       last = s;
     } else if (self->touch_.controller == TouchController::Cst816 &&
