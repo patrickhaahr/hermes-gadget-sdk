@@ -274,7 +274,7 @@ void Ui::draw_top(Canvas& c, const UiModel& m) {
   }
   int ty = s;
   if (panel_.round) {
-    // Reserve a visible, finger-sized settings target instead of an invisible strip.
+    // The settings hold target: the link dot above its label.
     c.fill_rect((w - layout_.title_w) / 2, 0, layout_.title_w, layout_.top_h, kBar);
     int r = std::max(2, 3 * s / 2 + 1);
     c.fill_circle(w / 2, 7 * s, r, dot);
