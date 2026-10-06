@@ -172,6 +172,9 @@ extern "C" void app_main(void) {
   if (latch_power) hal.power = &g_latch_power;
   if (g_updater.capacity()) hal.updater = &g_updater;
   i2c_master_bus_handle_t i2c_bus = hgp::i2c::bus(board.i2c);
+  // Boards whose display and touch resets come from a TCA9554 expander must
+  // release them before either controller is addressed.
+  hgp::expander_reset(board.expander_reset, i2c_bus);
   const bool peripherals_ready = !board.cores3 || g_cores3.begin(i2c_bus);
   if (board.cores3 && peripherals_ready)
     g_display.board_backlight = [](uint8_t percent) { g_cores3.set_backlight(percent); };
@@ -202,7 +205,9 @@ extern "C" void app_main(void) {
                       : hal.display == &g_parallel ? "st7789-i80"
                       : hal.display == &g_amoled ? "co5300"
                                                 : "none";
-  parts.mic = hal.mic == &g_codec_mic ? "es7210" : hal.mic == &g_mic ? "i2s" : "none";
+  parts.mic = hal.mic == &g_codec_mic
+                  ? (board.codec.mic == hgp::MicCodec::Es8311 ? "es8311" : "es7210")
+                  : hal.mic == &g_mic ? "i2s" : "none";
   parts.speaker = hal.speaker == &g_codec_speaker ?
       (board.codec.speaker == hgp::SpeakerCodec::Aw88298 ? "aw88298" : "es8311") :
       hal.speaker == &g_speaker ? "i2s" : "none";

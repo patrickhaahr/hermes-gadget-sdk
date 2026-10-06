@@ -36,7 +36,7 @@ struct InitCommand {
 // Panel bring-up for CO5300 1.75" modules: vendor page settings, RGB565,
 // tearing line on, full brightness, the 466x466 window (column offset 6),
 // then sleep out and display on.
-constexpr InitCommand kInit[] = {
+constexpr InitCommand kInit466[] = {
     {0x36, {0x00}, 1, 0},  // memory access control: no rotation
     {0x3A, {0x55}, 1, 0},  // 16 bits per pixel
     {0xFE, {0x20}, 1, 0},
@@ -52,6 +52,25 @@ constexpr InitCommand kInit[] = {
     {0x2A, {0x00, 0x06, 0x01, 0xD7}, 4, 0},
     {0x2B, {0x00, 0x00, 0x01, 0xD1}, 4, 600},
     {0x11, {}, 0, 600},  // sleep out
+    {0x29, {}, 0, 0},    // display on
+};
+
+// Panel bring-up for the rectangular 368x448 1.8" module (V2: CO5300 + CST820),
+// following Waveshare's own board example: no MADCTL write and no page-2
+// registers, only the vendor page, RGB565, tearing, brightness and the window
+// (column offset 16 is applied per flush through gap_x). The window set here is
+// the full 368x448 glass; every flush rewrites it.
+constexpr InitCommand kInit368[] = {
+    {0xFE, {0x00}, 1, 0},
+    {0xC4, {0x80}, 1, 0},
+    {0x3A, {0x55}, 1, 0},  // 16 bits per pixel
+    {0x35, {0x00}, 1, 0},  // tearing effect line on
+    {0x53, {0x20}, 1, 0},  // brightness control on
+    {0x51, {0xFF}, 1, 0},  // brightness
+    {0x63, {0xFF}, 1, 0},
+    {0x2A, {0x00, 0x00, 0x01, 0x6F}, 4, 0},
+    {0x2B, {0x00, 0x00, 0x01, 0xBF}, 4, 0},
+    {0x11, {}, 0, 100},  // sleep out
     {0x29, {}, 0, 0},    // display on
 };
 
@@ -116,9 +135,15 @@ bool AmoledDisplay::begin(const AmoledConfig& cfg) {
     gpio_set_level(static_cast<gpio_num_t>(cfg.rst), 1);
     vTaskDelay(pdMS_TO_TICKS(150));
   }
-  for (const auto& c : kInit) {
-    command(c.cmd, c.data, c.len);
-    if (c.delay_ms) vTaskDelay(pdMS_TO_TICKS(c.delay_ms));
+  const InitCommand* init = kInit466;
+  size_t init_len = sizeof(kInit466) / sizeof(kInit466[0]);
+  if (cfg.panel == AmoledPanel::Co5300_368) {
+    init = kInit368;
+    init_len = sizeof(kInit368) / sizeof(kInit368[0]);
+  }
+  for (size_t i = 0; i < init_len; ++i) {
+    command(init[i].cmd, init[i].data, init[i].len);
+    if (init[i].delay_ms) vTaskDelay(pdMS_TO_TICKS(init[i].delay_ms));
   }
   ESP_LOGI(TAG, "CO5300 %ux%u ready", cfg.width, cfg.height);
   return true;

@@ -1,0 +1,6 @@
+{
+  "title": "Waveshare ESP32-S3-Touch-AMOLED-1.8",
+  "summary": "Rectangular 1.8\" AMOLED touchscreen, one analog microphone and a speaker output.",
+  "docs": "docs/hardware.md#esp32-s3-touch-amoled-18",
+  "ready_made": true
+}

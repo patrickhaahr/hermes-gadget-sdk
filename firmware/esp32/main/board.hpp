@@ -42,7 +42,12 @@ struct I2sSpeakerConfig {
   int bclk = -1, ws = -1, dout = -1;
 };
 
-// QSPI AMOLED with a CO5300 controller (round 466x466 panels).
+// Which vendor bring-up table a CO5300 panel needs. The round 466x466 1.75"
+// modules write extra page-2 registers; the rectangular 368x448 1.8" modules use
+// the shorter table from Waveshare's own board example.
+enum class AmoledPanel { Co5300_466, Co5300_368 };
+
+// QSPI AMOLED with a CO5300 controller (round 466x466 or rectangular 368x448).
 struct AmoledConfig {
   bool enabled = false;
   uint16_t width = 466, height = 466;
@@ -50,6 +55,7 @@ struct AmoledConfig {
   int gap_x = 0, gap_y = 0;  // the controller's RAM is wider than the glass
   int qspi_mhz = 40;
   bool round = false;
+  AmoledPanel panel = AmoledPanel::Co5300_466;
 };
 
 struct I2cBusConfig {
@@ -57,9 +63,14 @@ struct I2cBusConfig {
   uint32_t hz = 400000;
 };
 
-// ES8311/AW88298 (speaker) and ES7210 (microphone ADC) sharing one duplex I2S bus,
+// ES8311/AW88298 (speaker) and the microphone ADC, sharing one duplex I2S bus,
 // controlled over the I2C bus.
 enum class SpeakerCodec { Es8311, Aw88298 };
+
+// The microphone front end: an ES7210 digital ADC for MEMS microphones, or the
+// ES8311's own ADC for a board that wires an analog electret mic to the speaker
+// codec (the 1.8" AMOLED module does the latter).
+enum class MicCodec { Es7210, Es8311 };
 
 struct CodecAudioConfig {
   bool enabled = false;
@@ -68,10 +79,11 @@ struct CodecAudioConfig {
   float amp_supply_v = 5.0f;  // amplifier supply; the ES8311 driver sets its output level from it
   float mic_gain_db = 24.0f;
   SpeakerCodec speaker = SpeakerCodec::Es8311;
+  MicCodec mic = MicCodec::Es7210;
 };
 
 // Capacitive touch on the I2C bus: hold to talk, tap, swipe down to cancel.
-enum class TouchController { Cst9217, Box3, Ft5x06 };
+enum class TouchController { Cst9217, Box3, Ft5x06, Cst820 };
 
 struct TouchConfig {
   bool enabled = false;
@@ -93,6 +105,14 @@ struct ExpanderKeyConfig {
 
 struct ButtonConfig {
   int talk = -1, cancel = -1, up = -1, down = -1;  // active-low GPIOs, -1 = absent
+};
+
+// Boards whose display and touch controllers are held in reset by a TCA9554 I/O
+// expander instead of direct GPIOs (LCD_RST, the DSI power rail and TOUCH_RST sit
+// on its output bits). The sequence runs once, before the display is initialised.
+struct ExpanderResetConfig {
+  bool enabled = false;
+  uint8_t addr = 0x20;
 };
 
 // A battery behind a resistive divider, with a latch that keeps it powered.
@@ -118,6 +138,7 @@ struct BoardConfig {
   CodecAudioConfig codec;
   TouchConfig touch;
   ExpanderKeyConfig pwr_key;
+  ExpanderResetConfig expander_reset;
   bool axp2101 = false;
   bool axp_audio_supply = false;
   bool cores3 = false;

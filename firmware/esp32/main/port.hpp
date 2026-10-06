@@ -220,6 +220,11 @@ namespace i2c {
 i2c_master_bus_handle_t bus(const I2cBusConfig& cfg);
 }
 
+// Runs a board's TCA9554 display/touch reset sequence (no-op, returns true, when
+// the board declares none). Call after the I2C bus exists and before the display
+// is initialised. Returns false when the expander did not acknowledge.
+bool expander_reset(const ExpanderResetConfig& cfg, i2c_master_bus_handle_t bus);
+
 // ES8311 + ES7210 on one duplex I2S bus through esp_codec_dev. Both directions
 // run at one fixed rate (they share the bit clock).
 class CodecAudio {
@@ -277,6 +282,7 @@ class TouchInput {
  private:
   static void task(void* arg);
   bool read_touch(TouchSample& out);
+  bool read_cst820(TouchSample& out);
   bool begin_box_touch(i2c_master_bus_handle_t bus);
   bool read_key(bool& pressed);
   TouchConfig touch_{};

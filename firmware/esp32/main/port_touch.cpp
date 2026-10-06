@@ -18,9 +18,51 @@ namespace {
 const char* TAG = "hg.touch";
 constexpr uint32_t kPollMs = 20;
 constexpr uint8_t kTca9554Input = 0x00;
+constexpr uint8_t kTca9554Output = 0x01;
+constexpr uint8_t kTca9554Config = 0x03;
 constexpr uint8_t kCstAck = 0xAB;
 
+// Bits of the TCA9554 on the 1.8" AMOLED module: LCD_RST, the DSI power rail,
+// TOUCH_RST and the SD card chip-select sit on its output bits (Waveshare's
+// board_variant.c). The others stay inputs.
+constexpr uint8_t kExpLcdRst = 1u << 0;
+constexpr uint8_t kExpDsiPwrEn = 1u << 1;
+constexpr uint8_t kExpTouchRst = 1u << 2;
+constexpr uint8_t kExpSdCs = 1u << 7;
+constexpr uint8_t kExpOutputMask = kExpLcdRst | kExpDsiPwrEn | kExpTouchRst | kExpSdCs;
+
 }  // namespace
+
+// Hold LCD_RST, TOUCH_RST and the panel's DSI power rail low through the
+// expander, then release them together, so both controllers start from a clean
+// reset. Mirrors Waveshare's board_variant.c release_touch_reset().
+bool expander_reset(const ExpanderResetConfig& cfg, i2c_master_bus_handle_t bus) {
+  if (!cfg.enabled) return true;
+  if (!bus) return false;
+  i2c_device_config_t dev_cfg = {};
+  dev_cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
+  dev_cfg.device_address = cfg.addr;
+  dev_cfg.scl_speed_hz = 400000;
+  i2c_master_dev_handle_t dev = nullptr;
+  if (i2c_master_bus_add_device(bus, &dev_cfg, &dev) != ESP_OK) {
+    ESP_LOGW(TAG, "TCA9554 at 0x%02x did not answer; display and touch stay in reset", cfg.addr);
+    return false;
+  }
+  auto write = [&](uint8_t reg, uint8_t value) {
+    const uint8_t data[] = {reg, value};
+    return i2c_master_transmit(dev, data, sizeof(data), 100) == ESP_OK;
+  };
+  // The masked bits become outputs (0 = output, 1 = input on a TCA9554).
+  bool ok = write(kTca9554Config, static_cast<uint8_t>(~kExpOutputMask));
+  // LCD_RST / TOUCH_RST low with the panel rail off, then release all together.
+  if (ok) ok = write(kTca9554Output, kExpSdCs);
+  vTaskDelay(pdMS_TO_TICKS(20));
+  if (ok) ok = write(kTca9554Output, kExpOutputMask);
+  vTaskDelay(pdMS_TO_TICKS(150));
+  i2c_master_bus_rm_device(dev);
+  if (!ok) ESP_LOGW(TAG, "TCA9554 display/touch reset sequence failed");
+  return ok;
+}
 
 bool TouchInput::begin(const TouchConfig& touch, const ExpanderKeyConfig& key, i2c_master_bus_handle_t bus) {
   if (!bus) return false;
@@ -59,11 +101,15 @@ bool TouchInput::begin(const TouchConfig& touch, const ExpanderKeyConfig& key, i
     dev.device_address = touch.addr;
     dev.scl_speed_hz = 400000;
     if (i2c_master_bus_add_device(bus, &dev, &touch_dev_) == ESP_OK) {
-      const uint8_t command_mode[2] = {0xD1, 0x01};
-      if (i2c_master_transmit(touch_dev_, command_mode, sizeof(command_mode), 50) != ESP_OK) {
-        ESP_LOGW(TAG, "touch controller at 0x%02x did not answer", touch.addr);
+      // The CST9xx controllers answer a wake/enable command; the CST820 is
+      // driven like a CST816 and has no such register.
+      if (touch.controller == TouchController::Cst9217) {
+        const uint8_t command_mode[2] = {0xD1, 0x01};
+        if (i2c_master_transmit(touch_dev_, command_mode, sizeof(command_mode), 50) != ESP_OK) {
+          ESP_LOGW(TAG, "touch controller at 0x%02x did not answer", touch.addr);
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
       }
-      vTaskDelay(pdMS_TO_TICKS(10));
     }
   }
   if (key.enabled) {
@@ -88,6 +134,7 @@ bool TouchInput::read_touch(TouchSample& out) {
     out = {down && points > 0, static_cast<int16_t>(x), static_cast<int16_t>(y)};
     return true;
   }
+  if (touch_.controller == TouchController::Cst820) return read_cst820(out);
   const uint8_t reg[2] = {0xD0, 0x00};
   if (i2c_master_transmit(touch_dev_, reg, sizeof(reg), 20) != ESP_OK) return false;
   // The controller needs ~2 ms before the read; at least one tick whatever the tick rate.
@@ -99,6 +146,24 @@ bool TouchInput::read_touch(TouchSample& out) {
   const bool down = points > 0 && (buf[0] & 0x0F) == 0x06;
   int x = (buf[1] << 4) | (buf[3] >> 4);
   int y = (buf[2] << 4) | (buf[3] & 0x0F);
+  if (touch_.mirror_x && touch_.width) x = touch_.width - 1 - x;
+  if (touch_.mirror_y && touch_.height) y = touch_.height - 1 - y;
+  out = {down, static_cast<int16_t>(x), static_cast<int16_t>(y)};
+  return true;
+}
+
+// CST820 (driven like a CST816, per Waveshare's TouchDrvCST816): one report of
+// 7 bytes from register 0x00 holds the status, the point count and the
+// coordinates; chip ID 0xB7. Single touch only.
+bool TouchInput::read_cst820(TouchSample& out) {
+  const uint8_t reg = 0x00;
+  uint8_t buf[7] = {};
+  if (i2c_master_transmit_receive(touch_dev_, &reg, 1, buf, sizeof(buf), 20) != ESP_OK) return false;
+  const uint8_t points = buf[2] & 0x0F;
+  if (buf[2] == 0xFF) return false;  // some parts return 0xFF after a wake
+  const bool down = points > 0;
+  int x = ((buf[3] & 0x0F) << 8) | buf[4];
+  int y = ((buf[5] & 0x0F) << 8) | buf[6];
   if (touch_.mirror_x && touch_.width) x = touch_.width - 1 - x;
   if (touch_.mirror_y && touch_.height) y = touch_.height - 1 - y;
   out = {down, static_cast<int16_t>(x), static_cast<int16_t>(y)};
