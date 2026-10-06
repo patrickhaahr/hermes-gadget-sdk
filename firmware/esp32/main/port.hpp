@@ -241,21 +241,21 @@ class CodecAudio {
 
 class CodecMic final : public hg::AudioIn {
  public:
-  bool begin(esp_codec_dev_handle_t dev, bool stereo32 = false);
+  bool begin(esp_codec_dev_handle_t dev, bool rmnm);
   bool start(uint32_t sample_rate) override;
   void stop() override { capturing_ = false; }
 
  private:
   static void task(void* arg);
   esp_codec_dev_handle_t dev_ = nullptr;
-  bool stereo32_ = false;
+  bool rmnm_ = false;
   int16_t* raw_ = nullptr;
   std::atomic<bool> capturing_{false};
 };
 
 class CodecSpeaker final : public hg::AudioOut {
  public:
-  bool begin(esp_codec_dev_handle_t dev, bool stereo32 = false, int pa = -1);
+  bool begin(esp_codec_dev_handle_t dev, bool stereo32, int pa);
   bool begin(uint32_t sample_rate) override;
   void write(const int16_t* samples, size_t count) override;
   void end() override;

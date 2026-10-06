@@ -144,11 +144,11 @@ bool CodecAudio::begin(const CodecAudioConfig& cfg, i2c_master_bus_handle_t bus)
 // --------------------------------------------------------------------------
 // Microphone
 
-bool CodecMic::begin(esp_codec_dev_handle_t dev, bool stereo32) {
+bool CodecMic::begin(esp_codec_dev_handle_t dev, bool rmnm) {
   if (!dev) return false;
   dev_ = dev;
-  stereo32_ = stereo32;
-  if (stereo32) {
+  rmnm_ = rmnm;
+  if (rmnm) {
     raw_ = static_cast<int16_t*>(heap_caps_malloc(kMicChunk * 4 * sizeof(int16_t), MALLOC_CAP_8BIT));
     if (!raw_) return false;
   }
@@ -172,13 +172,13 @@ void CodecMic::task(void* arg) {
   int16_t* raw = self->raw_;
   for (;;) {
     // Read continuously so a capture starts with fresh samples, not a stale DMA backlog.
-    void* data = self->stereo32_ ? static_cast<void*>(raw) : static_cast<void*>(pcm);
-    const size_t bytes = self->stereo32_ ? kMicChunk * 4 * sizeof(int16_t) : sizeof(pcm);
+    void* data = self->rmnm_ ? static_cast<void*>(raw) : static_cast<void*>(pcm);
+    const size_t bytes = self->rmnm_ ? kMicChunk * 4 * sizeof(int16_t) : sizeof(pcm);
     if (esp_codec_dev_read(self->dev_, data, bytes) != ESP_CODEC_DEV_OK) {
       vTaskDelay(pdMS_TO_TICKS(10));
       continue;
     }
-    if (self->stereo32_) hg::ws185_mono(raw, pcm, kMicChunk);
+    if (self->rmnm_) hg::ws185_mono(raw, pcm, kMicChunk);
     if (self->capturing_) events::post(EventType::Mic, pcm, sizeof(pcm));
   }
 }
@@ -237,8 +237,8 @@ void CodecSpeaker::end() {
 void CodecSpeaker::abort() {
   open_ = false;
   draining_ = false;
-  flush_ = true;
   if (pa_) pa_->abort();
+  flush_ = true;
 }
 
 bool CodecSpeaker::busy() const {
@@ -284,7 +284,7 @@ void CodecSpeaker::task(void* arg) {
       playing = true;
     }
     // Drop a chunk taken before an abort() rather than replay it.
-    if (pa && (self->flush_ || !pa->enable(generation))) continue;
+    if (pa && !pa->enable(generation)) continue;
     if (self->stereo32_) {
       const size_t frames = got / sizeof(int16_t);
       hg::ws185_stereo32(chunk, stereo, frames);

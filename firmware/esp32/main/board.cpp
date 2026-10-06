@@ -111,7 +111,6 @@ BoardConfig make() {
   b.lcd.controller = LcdController::St77916;
   b.lcd.width = b.lcd.height = 360;
   b.lcd.swap_xy = b.lcd.mirror_x = b.lcd.mirror_y = false;
-  b.lcd.invert = true;
   b.lcd.round = true;
   b.lcd.sclk = 40;
   b.lcd.mosi = 46;
@@ -131,6 +130,7 @@ BoardConfig make() {
   b.codec.din = 39;
   b.codec.pa = 15;
   b.codec.stereo32 = true;
+  b.codec.rmnm_mics = true;
   b.codec.speaker_pa = true;
   b.codec.dac_mclk = false;     // the factory demo clocks the ES8311 from BCLK
   b.codec.es7210_mics = 0x0f;   // MIC1 playback reference, MIC2/MIC4 microphones
