@@ -1070,7 +1070,7 @@ struct RoundTarget {
   int diameter, left, top, width, height;
 };
 constexpr RoundTarget kRound360{360, 120, 53, 120, 36};
-constexpr RoundTarget kRound466{466, 112, 68, 240, 48};
+constexpr RoundTarget kRound466{466, 112, 68, 240, 52};
 
 static void check_round_target_gestures(const RoundTarget& t) {
   Rig r(Rig::touch_profile());

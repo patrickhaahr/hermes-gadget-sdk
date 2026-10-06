@@ -151,7 +151,7 @@ Ui::Ui(Display& display) : display_(display), panel_(display.info()), info_(pane
   int w = info_.width, h = info_.height;
   int s = std::max(1, std::min(4, std::min(w / 160, h / 120)));
   layout_.scale = s;
-  layout_.top_h = panel_.round ? std::max(36, 24 * s) : Canvas::line_height(s) + 2 * s;
+  layout_.top_h = panel_.round ? std::max(36, 26 * s) : Canvas::line_height(s) + 2 * s;
   layout_.bottom_h = Canvas::line_height(s) + 2 * s;
   layout_.header_h = Canvas::line_height(s + 1) + 4 * s;
   layout_.main_y = layout_.top_h;
