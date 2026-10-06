@@ -116,6 +116,8 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
   io_cfg.user_ctx = this;
   uint8_t panel_id[4] = {};
   if (qspi) {
+    // As in the factory demo, read the panel ID (command 0x04) at 3 MHz. It
+    // selects one of the two vendor initialization tables below.
     const uint32_t full_speed = io_cfg.pclk_hz;
     io_cfg.pclk_hz = 3000000;
     if (esp_lcd_new_panel_io_spi(static_cast<esp_lcd_spi_bus_handle_t>(kHost), &io_cfg, &io_) != ESP_OK) return false;

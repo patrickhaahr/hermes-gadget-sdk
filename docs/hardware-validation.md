@@ -14,7 +14,7 @@ Firmware builds and simulator tests check software behavior. A physical verifica
 | Waveshare ESP32-S3-LCD-1.54, SKUs 33866/33867 | ST7789 240×240; BOOT and PLUS | ES7210 microphones and ES8311 speaker | Calibrated voltage, charging signal, battery latch and screen timeout; USB bypasses shutdown | CI build; physical report not recorded |
 | Waveshare ESP32-S3-Touch-AMOLED-1.75 | CO5300 466×466; CST9217 touch, BOOT and PWR | ES7210 microphones and ES8311 speaker output | AXP2101 readings and local power-off; optional screen timeout | CI build; physical report not recorded |
 | Waveshare ESP32-S3-Touch-AMOLED-1.75C, SKUs 33691/33692 | CO5300 466×466; CST9217 touch and BOOT | ES7210 microphones and ES8311 onboard speaker | AXP2101 readings, audio supply and local power-off; screen timeout | Experimental; physical report not recorded |
-| Waveshare ESP32-S3-Touch-LCD-1.85C V2 / PCB Rev2.0 only | ST77916 360×360 round QSPI LCD; CST816 touch and BOOT | ES8311 + ES7210 dual analog mic slots, NS4150B PA; mono transport; no software AEC | USB/battery switch; screen timeout; no battery telemetry or software shutdown | Experimental; partial Rev2.0 physical report below; full checklist incomplete |
+| Waveshare ESP32-S3-Touch-LCD-1.85C V2 / PCB Rev2.0 only | ST77916 360×360 round QSPI LCD; CST816 touch and BOOT | ES8311 + ES7210 dual analog mic slots, NS4150B PA; mono transport; no software AEC | USB/battery switch; screen timeout; no battery telemetry or software shutdown | Experimental; [partial Rev2.0 report](#waveshare-185c-v2-partial-physical-report); full checklist not completed |
 | Espressif ESP32-S3-BOX-3 | ST7789/TT21100 or ILI9342/GT911, detected through I2C; BOOT and touch gestures | ES7210 microphones and ES8311 onboard speaker | USB power; screen timeout | Experimental; physical report not recorded for either panel revision |
 | M5Stack CoreS3 (K128) | ILI9342C/E 320×240, detected through touch firmware; FT6336 gestures | ES7210 microphones and AW88298 speaker | AXP2101 readings, backlight and local power-off; AW9523 reset/boost control | Experimental; physical report not recorded for either panel revision |
 | LilyGO T-Display-S3 (SKU/Version H587; PCB revision 1.2) | ST7789 320×170 over 8-bit i80; BOOT and Button2 | No onboard audio | Battery divider; no fuel gauge; GPIO15 powers the panel rail, not device shutdown | Experimental; physical smoke check only (screen ready/replies, Wi-Fi, online pairing); full physical checklist not completed; hardware-verified status not claimed |
@@ -25,33 +25,15 @@ CI builds and packages these profiles. The browser installer lists profiles incl
 
 ## Waveshare 1.85C V2 partial physical report
 
-Tested on a Rev2.0 speaker-box board with ESP32-S3, 16 MB flash and 8 MB
-PSRAM, powered over USB. Firmware includes the V2 port, speaker lifecycle fix
-and IPv4-mapped provisioning socket guard in this branch.
+- **Board:** PCB Rev2.0 speaker-box version with ESP32-S3, 16 MB flash and 8 MB PSRAM, powered over USB.
+- **Firmware:** builds of this port's branch up to `edcbd66`, not the split board revision. All of them had the SPI flush-timeout change for every `SpiDisplay` panel. The later ones also had the round settings target. The network tests used the branch's own mapped-IPv4 provisioning guard, which main's `ipv4_of` replaces.
+- **Confirmed by the operator:** a readable, upright display; basic touch and brightness; a microphone level that follows speech; the local test tone; Wi-Fi setup; a WSS connection; pairing; and a spoken question with an audible Hermes reply.
+- **Updates:** app-only updates passed readback verification. NVS was byte-identical before and after, and the same paired identity reconnected.
+- **Power cycle:** after USB was unplugged and plugged back in, the device reconnected without Wi-Fi setup or re-pairing. This does not test losing Wi-Fi while powered.
+- **Not verified:** battery operation, OTA and rollback, long-run stability, interrupting touch or audio, recovery from injected faults, Wi-Fi loss while powered, each microphone on its own, and touch accuracy across the whole screen.
+- **Not implemented:** software echo cancellation, battery telemetry and software shutdown.
 
-Confirmed: private original-flash backup, successful USB installation/boot,
-application readback verification, upright readable display, basic touch and
-brightness adjustment, speech-responsive microphone level, and audible local
-tone. Phone provisioning initially failed on the dual-stack HTTP listener;
-the mapped-IPv4 guard fix was installed before successful network setup.
-The device connected over certificate-validated WSS through a TLS reverse
-proxy, reached pairing, and the operator approved it. The operator confirmed
-a spoken question received an audible Hermes reply. This establishes a basic
-end-to-end voice turn, not comprehensive audio quality or echo cancellation.
-
-Previously unresolved: holding the title bar to open settings. The round layout
-now reserves a visible, enlarged SETTINGS target; native regression coverage
-confirms opening/closing without microphone activation and TALK outside it.
-The app-only update passed readback verification, preserved NVS byte-for-byte,
-and reconnected with the same paired identity. The operator confirmed the
-settings interaction worked and the contextual BACK TO HERMES label looked
-good on the physical board after the label update (edcbd66). Not yet verified: complete
-color/touch alignment, independent microphones and slot assignment, transcript
-accuracy, cancellation/interrupt behavior, PA timing, fault injection/recovery,
-provisioning negative cases on hardware,
-network-loss recovery, battery operation, OTA/rollback, and two-hour stability.
-Battery telemetry and software shutdown are not implemented. Software AEC is
-not implemented. The port remains experimental pending the full checklist.
+The port stays experimental.
 
 ## Record a physical test
 

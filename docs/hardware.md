@@ -84,117 +84,39 @@ The USB-C port is the S3's own USB Serial/JTAG, so flashing and the serial conso
 
 ## Waveshare ESP32-S3-Touch-LCD-1.85C V2
 
-**Experimental, hardware unvalidated. Rev2.0 only**, identified by PCB Rev2.0,
-case V2 sticker, or factory firmware Rev2.0. V1 uses different audio hardware
-and must not use this image. Select `esp32s3-touch-lcd-185c-v2`; the embedded
-OTA identity is `waveshare-esp32-s3-touch-lcd-1.85c-v2`. ESP32-S3R8, 16 MB flash,
-8 MB octal PSRAM, round 360×360 RGB565 LCD. The standard SKU needs a speaker
-connected to SPK; the BOX includes one. Start with low volume.
+Use `esp32s3-touch-lcd-185c-v2` for the V2 board, PCB Rev2.0: an ESP32-S3R8 with 16 MB flash and 8 MB octal PSRAM, a round 360×360 ST77916 LCD over QSPI, CST816 touch, an ES8311 DAC, an ES7210 microphone ADC with two microphones and an NS4150B amplifier. A V2 board says Rev2.0 on the PCB or has a V2 sticker on the case. V1 has different audio hardware and must not use this image. The standard SKU needs a speaker on the SPK connector; the speaker-box version includes one. This port is experimental; see the [partial physical report](hardware-validation.md#waveshare-185c-v2-partial-physical-report).
 
 | Part | Connection |
 |---|---|
-| ST77916 QSPI LCD | CS 21, clock 40, D0–D3 46/45/42/41; backlight GPIO 5 (active-high LEDC), TE 18 unused |
-| CST816 touch | I2C 0x15; interrupt GPIO 4 unused (20 ms polling); no mirroring or XY swap |
-| TCA9554 | I2C 0x20; P0 = touch reset, P1 = LCD reset, active low; other bits preserved |
+| ST77916 LCD, QSPI | CS 21, clock 40, D0–D3 46/45/42/41, backlight 5 (LEDC); reset through TCA9554 P1 |
+| CST816 touch | I2C 0x15, polled; reset through TCA9554 P0 |
+| TCA9554 expander | I2C 0x20; the firmware changes only P0 and P1 |
 | I2C | SDA 11, SCL 10, 400 kHz |
-| ES8311 decoder | I2C 0x18; I2S DOUT 47 to codec DIN; NS4150B PA_CTRL GPIO 15 active high |
-| ES7210 encoder | I2C 0x40; I2S DIN 39 from ADC; MIC2 and MIC4 are the two analog microphones |
-| Shared audio clock | MCLK 2, BCLK 48, LRCK 38; 16 kHz, stereo 32-bit I2S frames |
-| BOOT fallback TALK | GPIO 0, active low |
-| Native USB | GPIO 19/20 reserved for USB Serial/JTAG; console at 115200 baud |
+| ES8311 speaker / ES7210 microphones | I2C 0x18 / 0x40; MCLK 2, BCLK 48, WS 38, DOUT 47, DIN 39; amplifier enable 15 |
+| BOOT | GPIO 0, TALK |
 
-The expander adapter pulses only P0/P1 low for 10 ms, then high for 50 ms,
-with masked output/configuration writes, before initializing LCD and touch.
-LCD ID command 0x04 is read at 3 MHz, as in the factory demo. IDs
-`00 7f 7f 7f` and `00 02 7f 7f` select the two vendor initialization tables;
-an unknown or failed ID read leaves the display unavailable, rather than
-trying guessed settings. Normal pixel transfers use 80 MHz QSPI with a DMA
-bounce buffer and wait for transfer completion before reusing it.
+**Audio.** Each I2S frame has two 32-bit slots. The ES7210 packs four 16-bit channels into them: the speaker's playback reference, a microphone, an unused channel and the second microphone. The firmware averages the two microphones into mono and ignores the reference, so there is no echo cancellation. The amplifier is on only while audio plays. Start with a low volume.
 
-Audio reuses `esp_codec_dev` and the event queue. The factory's 64-bit
-frame contains four ADC PCM16 slots (`RMNM`: playback reference, microphone,
-unused, microphone). Both microphone slots are averaged into mono PCM16 for
-the portable core; replies are expanded into two 32-bit DAC slots. This
-format is selected only for V2, so the existing codec profiles remain mono16.
-The speaker lifecycle owns PA_CTRL; codec initialization cannot enable it.
-PA_CTRL stays low when idle and is lowered synchronously by `abort()` with
-GPIO/generation locking to prevent an old reply from re-enabling it. Codec
-writes already in flight may finish with the amplifier disabled. Physical
-shutdown latency, startup transients and subsequent playback still need testing.
-A missing LCD DMA callback stops display updates after a 250 ms wait without
-reusing the possibly active DMA buffer; other app functions continue, and a
-manual reboot is required to recover the display. Five failed CST816 polls
-release a held touch (roughly 100–200 ms plus scheduler delay); this uses normal
-release semantics, so an active held recording can be submitted. Validate this
-fault/recovery behavior during the physical test. Diagnostics name Rev2.0 as
-the firmware target, not as a detected PCB revision.
-
-**AEC limitation:** the analog playback-reference circuit is present, but
-this port does not run ESP-SR or a software AEC filter, expose stereo capture,
-or claim echo cancellation or voice barge-in quality. The reference and
-unused slots are intentionally excluded from the transmitted microphone mix.
-Touch/BOOT interruption uses the SDK's existing push-to-talk flow. Record AEC
-and simultaneous playback/capture observations separately; a good transcript
-alone does not verify AEC. RTC, IMU, TF card, battery ADC/charging and software
-power-off are not implemented; the physical battery switch retains its role.
-Screen dimming and timeout control the GPIO 5 backlight.
-
-Build without touching USB:
+Hold the screen or BOOT to talk, tap to answer yes, and swipe down to cancel. RESET is not a CANCEL button. The IMU, RTC, TF card and battery ADC are not used, and the battery switch keeps its hardware function.
 
 ```bash
 cd firmware/esp32
-pio run -e esp32s3-touch-lcd-185c-v2
+pio run -e esp32s3-touch-lcd-185c-v2 -t upload -t monitor
 ```
 
-ESP-IDF builds use
-`SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/waveshare-esp32-s3-touch-lcd-1.85c-v2/sdkconfig.defaults"`
-with a separate build directory and sdkconfig. The environment participates in
-CI and automatic release packaging/installer metadata discovery. Until a
-release includes it, use a source build; no release has been published by this
-port. For desktop UI/gesture tests use `--board sim-360x360-round`.
+For ESP-IDF, use `SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/waveshare-esp32-s3-touch-lcd-1.85c-v2/sdkconfig.defaults"` with a separate build directory and sdkconfig. The USB-C port handles flashing and the serial console (115200 baud). The `sim-360x360-round` simulator board has the same screen.
 
-### V2 first-flash checklist (requires a separate hardware test)
+### First flash: what to check
 
-1. Confirm Rev2.0 and back up factory firmware/settings before installing.
-   Check USB download/recovery, boot log, 16 MB flash and 8 MB octal PSRAM;
-   no GPIO 19/20 reuse. Save sanitized `diag` and `diag log` reports.
-2. Check `TCA9554 LCD/touch resets ready`, `st77916 360x360 ready`, both codecs
-   ready and touch ready. I2C should include 0x15, 0x18, 0x20 and 0x40;
-   QMI8658/PCF85063 may also answer but are not SDK capabilities.
-3. Display: centered/upright mascot, no mirroring, all circle edges visible,
-   amber accents rather than blue, smooth full-width flushes, backlight 0–100
-   and screen timeout. Record the panel ID and which table was selected.
-4. Touch: verify center and four compass points, hold TALK, lift to send,
-   tap YES, swipe **down** CANCEL, title hold opens settings, first touch wakes
-   without sending a turn. BOOT also holds TALK; RESET is not CANCEL.
-5. Microphones: test each physical mic separately, waveform and transcript,
-   with and without speaker playback; verify neither reference nor unused
-   ADC channel is mistaken for a microphone. Record clipping/noise and RMNM
-   slot mapping. AEC is **not implemented**: record residual echo explicitly.
-6. Speaker/PA: begin at low volume, test a spoken reply, mute/idle silence,
-   cancel during playback, subsequent playback, and GPIO 15 enable/disable;
-   check hiss, popping, distortion and underruns. Do not infer PA operation
-   from a successful codec I2C probe.
-7. USB console: `status`, `diag`, settings persist across a manual reboot;
-   verify BOOT-based download recovery before relying on OTA.
-8. Wi-Fi: phone setup, wrong/correct password, cancellation, reconnect and
-   gateway loss/recovery. Never include secrets in test reports.
-9. Pair with Hermes, restart to check identity persistence, then complete a
-   held voice turn with transcript and audible reply; tap YES and cancel a
-   question/recording/reply. Test exact-board OTA and rollback separately.
-10. Complete the [physical validation report](hardware-validation.md),
-    including power-source behavior and a two-hour session. All these hardware
-    items remain untested by automated builds/simulator tests.
+1. **Boot log:** `expander resets 0x03 ready`, `ST77916 panel ID …`, `st77916 360x360 ready`, `codecs: speaker ready, microphones ready` and `touch ready`. An unknown panel ID leaves the display off. In `hermes-gadget diag`, the `i2c` list has `0x15`, `0x18`, `0x20` and `0x40`.
+2. **Screen:** the mascot is centred, upright and not mirrored, the whole circle is visible, and the accents are amber, not blue. Brightness and screen timeout work.
+3. **Touch:** holding the centre and each edge starts a recording; a tap answers yes and a swipe down cancels.
+4. **Microphone:** the waves move with your voice and Hermes's transcript is right.
+5. **Speaker:** replies are clear, with no hiss or pop between them. Cancelling a reply stops it at once, and the next reply plays.
 
-Authoritative sources: [Waveshare V2 documentation](https://docs.waveshare.com/ESP32-S3-Touch-LCD-1.85C),
-[V2 schematic](https://files.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.85C/ESP32-S3-Touch-LCD-1.85C_V2.pdf),
-and [factory demo at 8ead4a96](https://github.com/waveshareteam/ESP32-S3-Touch-LCD-1.85C/tree/8ead4a96bf3a278fc4ebd8ef4768657e17fa2880).
-Relevant paths: `main/LCD_Driver/ST77916.{h,c}`, `main/EXIO/TCA9554PWR.{h,c}`,
-`main/Touch_Driver/CST816.{h,c}` and
-`components/auido_borad/boards/ESP32_S3_AUDIO_Board/bsp_board.c` under
-`ESP-IDF/ESP32-S3-Touch-LCD-1.85C-Test`. The demo's EXIO numbering is one-based,
-not ESP GPIO numbering. Driver/table licenses are in
-[THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
+Record the results with the [hardware checklist](hardware-validation.md#record-a-physical-test).
+
+References: [Waveshare V2 documentation](https://docs.waveshare.com/ESP32-S3-Touch-LCD-1.85C), [V2 schematic](https://files.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.85C/ESP32-S3-Touch-LCD-1.85C_V2.pdf) and the [factory demo at 8ead4a96](https://github.com/waveshareteam/ESP32-S3-Touch-LCD-1.85C/tree/8ead4a96bf3a278fc4ebd8ef4768657e17fa2880). The demo numbers the expander pins from one (EXIO1 is P0). The LCD initialization tables and their licenses are listed in [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
 
 ## ESP32-S3-BOX-3
 
