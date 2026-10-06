@@ -153,6 +153,7 @@ Ui::Ui(Display& display) : display_(display), panel_(display.info()), info_(pane
   layout_.scale = s;
   layout_.top_h = panel_.round ? std::max(36, 26 * s) : Canvas::line_height(s) + 2 * s;
   layout_.bottom_h = Canvas::line_height(s) + 2 * s;
+  layout_.title_w = panel_.round ? std::min(w, 120 * s) : w;
   layout_.header_h = Canvas::line_height(s + 1) + 4 * s;
   layout_.main_y = layout_.top_h;
   layout_.main_h = h - layout_.top_h - layout_.bottom_h;
@@ -274,8 +275,7 @@ void Ui::draw_top(Canvas& c, const UiModel& m) {
   int ty = s;
   if (panel_.round) {
     // Reserve a visible, finger-sized settings target instead of an invisible strip.
-    const int target_w = std::min(w, 120 * s);
-    c.fill_rect((w - target_w) / 2, 0, target_w, layout_.top_h, kBar);
+    c.fill_rect((w - layout_.title_w) / 2, 0, layout_.title_w, layout_.top_h, kBar);
     int r = std::max(2, 3 * s / 2 + 1);
     c.fill_circle(w / 2, 7 * s, r, dot);
     const char* control = m.screen == Screen::Settings ? "BACK TO HERMES" : "SETTINGS";

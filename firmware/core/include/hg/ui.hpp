@@ -6,7 +6,6 @@
 // same pixels, which is what the simulator's screenshot tests rely on.
 #pragma once
 
-#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -63,6 +62,7 @@ struct UiModel {
 struct UiLayout {
   int scale = 1;  // base text scale
   int top_h = 0, header_h = 0, bottom_h = 0;
+  int title_w = 0;  // width of the settings hold target in the top band
   int body_cols = 0, body_rows = 0;
   int main_y = 0, main_h = 0;  // area between the bars (used for images)
   int hero_cols = 0;  // characters per hero caption line
@@ -86,9 +86,8 @@ class Ui {
   // Body text rows visible on a text screen for this model (after detail lines).
   int body_rows(const UiModel& m) const;
   bool title_hit(int x, int y) const {
-    const int width = panel_.round ? std::min<int>(info_.width, 120 * layout_.scale) : info_.width;
-    const int left = ox_ + (info_.width - width) / 2;
-    return x >= left && x < left + width && y >= oy_ && y < oy_ + layout_.top_h;
+    const int left = ox_ + (info_.width - layout_.title_w) / 2;
+    return x >= left && x < left + layout_.title_w && y >= oy_ && y < oy_ + layout_.top_h;
   }
 
  private:
