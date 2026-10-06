@@ -7,7 +7,7 @@
 
 #include "driver/gpio.h"
 #include "esp_log.h"
-#include "ws185.hpp"
+#include "cst816.hpp"
 #include "esp_lcd_touch_gt911.h"
 #include "esp_lcd_touch_tt21100.h"
 #include "esp_lcd_touch_ft5x06.h"
@@ -157,7 +157,7 @@ bool TouchInput::read_key(bool& pressed) {
 void TouchInput::task(void* arg) {
   auto* self = static_cast<TouchInput*>(arg);
   bool was_touching = false, key_down = false;
-  hg::Ws185TouchFault fault;
+  hg::Cst816Fault fault;
   TouchSample last{};
   for (;;) {
     TouchSample s{};

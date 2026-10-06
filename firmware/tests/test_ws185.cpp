@@ -1,6 +1,7 @@
 #include <array>
 #include <vector>
 #include "check.hpp"
+#include "cst816.hpp"
 #include "tca9554.hpp"
 #include "ws185.hpp"
 
@@ -79,8 +80,8 @@ TEST("WS185: RMNM conversion uses both mics and excludes reference/unused") {
   CHECK_EQ(mono[3], int16_t(0));
 }
 
-TEST("WS185: touch fault releases only a held touch after five failures and recovers") {
-  hg::Ws185TouchFault fault;
+TEST("CST816: touch fault releases only a held touch after five failures and recovers") {
+  hg::Cst816Fault fault;
   for (int i = 0; i < 4; ++i) CHECK(!fault.release_due(true));
   CHECK(fault.release_due(true));
   CHECK(fault.release_due(true));  // failed event enqueue must be retryable
