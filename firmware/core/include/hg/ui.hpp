@@ -50,6 +50,7 @@ struct UiModel {
   uint8_t level = 0;     // microphone level 0..100
   bool speaking = false;
   bool color_test = false;
+  bool settings_hold = true;  // round panels draw the settings target only while holding it works
   uint32_t frame = 0;    // animation frame, advanced by the app
   std::string hint;      // bottom bar
   std::string yes, no;   // answer buttons under the hero caption (Prompt screen)

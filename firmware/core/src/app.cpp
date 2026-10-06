@@ -1347,6 +1347,7 @@ void App::update_model() {
   m.level = level_;
   m.speaking = speaking();
   m.color_test = false;
+  m.settings_hold = settings_hold_live();
 
   switch (phase_) {
     case Phase::NoNetwork:

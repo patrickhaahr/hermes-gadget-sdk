@@ -1144,6 +1144,23 @@ TEST("settings: round header redraws its return label and restores settings labe
   check_round_header_label(kRound466);
 }
 
+TEST("settings: round target is drawn only while the hold works") {
+  Rig r(Rig::touch_profile());
+  r.fake.make_round(466);
+  r.bring_online(true);
+  const size_t in_bar = static_cast<size_t>((kRound466.top + 2) * 466 + kRound466.left + 2);
+  const uint16_t lit = r.fake.fb[in_bar];
+  r.server(R"({"type":"turn.start","turn":"t"})");
+  r.server(R"({"type":"prompt","id":"q1","text":"Continue?"})");
+  CHECK(r.app.screen() == hg::Screen::Prompt);
+  CHECK(r.fake.fb[in_bar] != lit);
+  r.advance(700);
+  r.app.on_button(hg::Button::Talk, true);
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.app.screen() == hg::Screen::Thinking);
+  CHECK(r.fake.fb[in_bar] == lit);
+}
+
 TEST("settings: rectangular boards keep the full-width title strip and their header") {
   Rig r(Rig::touch_profile());  // 320x240: scale 2, so the strip is 22 px tall
   r.bring_online(true);
