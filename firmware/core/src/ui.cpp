@@ -190,7 +190,7 @@ void Ui::render(const UiModel& m) {
   const int y_bottom = h - layout_.bottom_h;
 
   uint32_t hashes[4];
-  hashes[0] = Hash().add(m.title).val(m.link).get();
+  hashes[0] = Hash().add(m.title).val(m.link).val(panel_.round && m.screen == Screen::Settings).get();
   hashes[1] = Hash()
                   .val(m.screen)
                   .add(m.headline)
@@ -278,7 +278,8 @@ void Ui::draw_top(Canvas& c, const UiModel& m) {
     c.fill_rect((w - target_w) / 2, 0, target_w, layout_.top_h, kBar);
     int r = std::max(2, 3 * s / 2 + 1);
     c.fill_circle(w / 2, 7 * s, r, dot);
-    c.text((w - Canvas::text_width("SETTINGS", s)) / 2, 16 * s, "SETTINGS", s, kDim);
+    const char* control = m.screen == Screen::Settings ? "BACK TO HERMES" : "SETTINGS";
+    c.text((w - Canvas::text_width(control, s)) / 2, 16 * s, control, s, kDim);
     return;
   }
   int label_w = Canvas::text_width(label, s);
