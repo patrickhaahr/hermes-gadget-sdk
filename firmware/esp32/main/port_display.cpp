@@ -85,6 +85,14 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
   }
   std::memset(fb_, 0, px * 2);
   done_ = xSemaphoreCreateBinary();
+  bands_.emplace(
+      cfg.height, bounce_rows_,
+      [this](int y, int rows) {
+        const int w = cfg_.width;
+        std::memcpy(bounce_, fb_ + static_cast<size_t>(y) * w, static_cast<size_t>(rows) * w * 2);
+        return esp_lcd_panel_draw_bitmap(panel_, 0, y, w, y + rows, bounce_) == ESP_OK;
+      },
+      [this](uint32_t ms) { return xSemaphoreTake(done_, pdMS_TO_TICKS(ms)) == pdTRUE; });
 
   spi_bus_config_t bus = {};
   bus.mosi_io_num = cfg.mosi;
@@ -168,13 +176,18 @@ hg::DisplayInfo SpiDisplay::info() const {
 }
 
 void SpiDisplay::flush(uint16_t y0, uint16_t y1) {
-  const int w = cfg_.width;
-  for (int y = y0; y < y1; y += bounce_rows_) {
-    int rows = std::min<int>(bounce_rows_, y1 - y);
-    std::memcpy(bounce_, fb_ + static_cast<size_t>(y) * w, static_cast<size_t>(rows) * w * 2);
-    esp_lcd_panel_draw_bitmap(panel_, 0, y, w, y + rows, bounce_);
-    // The bounce buffer is reused: wait until the DMA transfer has finished.
-    xSemaphoreTake(done_, pdMS_TO_TICKS(100));
+  switch (bands_->flush(y0, y1)) {
+    case hg::BandFlush::Event::TimedOut:
+      ESP_LOGE(TAG, "LCD transfer timed out; display paused until it completes");
+      break;
+    case hg::BandFlush::Event::Resumed:
+      ESP_LOGW(TAG, "late LCD transfer completed; display resumed");
+      break;
+    case hg::BandFlush::Event::Failed:
+      ESP_LOGE(TAG, "LCD transfer failed; display updates stopped until reboot");
+      break;
+    case hg::BandFlush::Event::None:
+      break;
   }
 }
 
