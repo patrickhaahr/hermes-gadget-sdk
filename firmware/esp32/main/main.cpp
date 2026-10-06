@@ -244,11 +244,6 @@ extern "C" void app_main(void) {
   app.on_wifi_setup_close = [] { g_wifi.stop_setup(); };
   app.on_diag = [](hg::json::Value& report) {
     hgp::diag::report(report);
-    if (hgp::board_config().tca9554_resets) {
-      report.set("firmware_target_revision", "Rev2.0").set("validation", "experimental; hardware unvalidated")
-          .set("touch_controller", "cst816").set("audio_format", "RMNM stereo32 to mono16")
-          .set("software_aec", false);
-    }
     report.set("ota", g_updater.describe());
   };
   app.recent_log = &hgp::diag::recent_log;
