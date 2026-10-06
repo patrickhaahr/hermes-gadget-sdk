@@ -43,8 +43,9 @@ Previously unresolved: holding the title bar to open settings. The round layout
 now reserves a visible, enlarged SETTINGS target; native regression coverage
 confirms opening/closing without microphone activation and TALK outside it.
 The app-only update passed readback verification, preserved NVS byte-for-byte,
-and reconnected with the same paired identity; physical gesture confirmation
-is pending. Not yet verified: complete
+and reconnected with the same paired identity. The operator confirmed the
+settings interaction worked and the contextual BACK TO HERMES label looked
+good on the physical board after the label update (edcbd66). Not yet verified: complete
 color/touch alignment, independent microphones and slot assignment, transcript
 accuracy, cancellation/interrupt behavior, PA timing, fault injection/recovery,
 provisioning negative cases on hardware,
