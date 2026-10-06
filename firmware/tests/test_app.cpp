@@ -1065,6 +1065,27 @@ TEST("settings: title hold and menu swipe work without starting a recording") {
   CHECK(r.app.screen() == hg::Screen::Ready);
 }
 
+TEST("settings: round header redraws its return label and restores settings label") {
+  FakeHal display;
+  display.make_round(360);
+  hg::Ui ui(display);
+  hg::UiModel m;
+  m.screen = hg::Screen::Ready;
+  m.link = hg::Link::Online;
+  ui.render(m);
+  const auto top = [&]() {
+    return std::vector<uint16_t>(display.fb.begin() + 53 * 360,
+                                 display.fb.begin() + 89 * 360);
+  };
+  const auto ready = top();
+  m.screen = hg::Screen::Settings;
+  ui.render(m);
+  CHECK(top() != ready);
+  m.screen = hg::Screen::Ready;
+  ui.render(m);
+  CHECK(top() == ready);
+}
+
 TEST("settings: round 360 target reserves its full visible area from TALK") {
   Rig r(Rig::touch_profile());
   r.fake.make_round(360);
