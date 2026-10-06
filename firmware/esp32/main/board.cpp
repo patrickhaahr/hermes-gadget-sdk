@@ -131,6 +131,9 @@ BoardConfig make() {
   b.codec.din = 39;
   b.codec.pa = 15;
   b.codec.stereo32 = true;
+  b.codec.speaker_pa = true;
+  b.codec.dac_mclk = false;     // the factory demo clocks the ES8311 from BCLK
+  b.codec.es7210_mics = 0x0f;   // MIC1 playback reference, MIC2/MIC4 microphones
   b.touch.enabled = true;
   b.touch.controller = TouchController::Cst816;
   b.touch.addr = 0x15;

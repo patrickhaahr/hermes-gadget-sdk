@@ -18,6 +18,7 @@
 #include "board.hpp"
 #include "axp2101.hpp"
 #include "cores3.hpp"
+#include "speaker_pa.hpp"
 #include "driver/i2c_master.h"
 #include "driver/i2s_std.h"
 #include "esp_codec_dev.h"
@@ -266,9 +267,7 @@ class CodecSpeaker final : public hg::AudioOut {
   esp_codec_dev_handle_t dev_ = nullptr;
   bool stereo32_ = false;
   int32_t* stereo_ = nullptr;
-  int pa_ = -1;
-  std::mutex pa_lock_;  // V2 GPIO/generation/nonblocking queue operations; never codec I/O.
-  uint32_t pa_generation_ = 0;
+  std::optional<hg::SpeakerPa> pa_;  // set when this speaker, not esp_codec_dev, drives the PA pin
   StreamBufferHandle_t buffer_ = nullptr;
   std::atomic<bool> open_{false};
   std::atomic<bool> draining_{false};

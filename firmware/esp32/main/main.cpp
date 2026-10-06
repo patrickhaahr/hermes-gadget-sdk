@@ -193,7 +193,7 @@ extern "C" void app_main(void) {
   if (!audio_power) ESP_LOGE(TAG, "audio supply unavailable");
   if (board.codec.enabled && audio_power && g_codec.begin(board.codec, i2c_bus)) {
     if (g_codec_mic.begin(g_codec.in(), board.codec.stereo32)) hal.mic = &g_codec_mic;
-    if (g_codec_speaker.begin(g_codec.out(), board.codec.stereo32, board.codec.stereo32 ? board.codec.pa : -1)) hal.speaker = &g_codec_speaker;
+    if (g_codec_speaker.begin(g_codec.out(), board.codec.stereo32, board.codec.speaker_pa ? board.codec.pa : -1)) hal.speaker = &g_codec_speaker;
   }
   g_buttons.begin(board.buttons);
   const bool touch = peripherals_ready && (board.touch.enabled || board.pwr_key.enabled) &&

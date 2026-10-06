@@ -71,7 +71,10 @@ struct CodecAudioConfig {
   float amp_supply_v = 5.0f;  // amplifier supply; the ES8311 driver sets its output level from it
   float mic_gain_db = 24.0f;
   SpeakerCodec speaker = SpeakerCodec::Es8311;
-  bool stereo32 = false;  // Waveshare V2: 64 BCLK/frame, RMNM ADC packing
+  bool stereo32 = false;      // two 32-bit I2S slots per frame; microphones packed R M N M (ws185.hpp)
+  bool speaker_pa = false;    // CodecSpeaker drives `pa`, not esp_codec_dev (see CodecAudio::begin)
+  bool dac_mclk = true;       // false: the ES8311 derives its clock from BCLK
+  uint8_t es7210_mics = 0x03;  // ES7210_SEL_MIC1 | ES7210_SEL_MIC2
 };
 
 // Capacitive touch on the I2C bus: hold to talk, tap, swipe down to cancel.

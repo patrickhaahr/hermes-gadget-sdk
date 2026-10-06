@@ -7,10 +7,10 @@
 
 #include "esp_codec_dev_defaults.h"
 #include "driver/gpio.h"
-#include "ws185.hpp"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/task.h"
+#include "ws185.hpp"
 
 namespace hgp {
 namespace {
@@ -19,7 +19,6 @@ const char* TAG = "hg.codec";
 constexpr size_t kMicChunk = 320;             // 20 ms at 16 kHz
 constexpr size_t kSpeakerBuffer = 48 * 1024;  // ~1.5 s at 16 kHz; the server paces 0.5 s ahead
 constexpr size_t kSpeakerChunk = 512;         // samples per codec write
-constexpr uint8_t kMic1And2 = 0x03;           // ES7210 inputs MIC1 | MIC2 (ES7120_SEL_MIC1 | ES7120_SEL_MIC2)
 
 }  // namespace
 
@@ -50,7 +49,7 @@ i2c_master_bus_handle_t bus(const I2cBusConfig& cfg) {
 
 bool CodecAudio::begin(const CodecAudioConfig& cfg, i2c_master_bus_handle_t bus) {
   if (!bus) return false;
-  if (cfg.stereo32 && cfg.pa >= 0) {
+  if (cfg.speaker_pa && cfg.pa >= 0) {
     gpio_reset_pin(static_cast<gpio_num_t>(cfg.pa));
     gpio_set_direction(static_cast<gpio_num_t>(cfg.pa), GPIO_MODE_OUTPUT);
     gpio_set_level(static_cast<gpio_num_t>(cfg.pa), 0);
@@ -90,11 +89,13 @@ bool CodecAudio::begin(const CodecAudioConfig& cfg, i2c_master_bus_handle_t bus)
   dac.ctrl_if = audio_codec_new_i2c_ctrl(&dac_i2c);
   dac.gpio_if = gpio_if;
   dac.codec_mode = ESP_CODEC_DEV_WORK_MODE_DAC;
-  // V2 owns PA in the speaker lifecycle, not in codec open/enable at boot.
-  dac.pa_pin = cfg.stereo32 ? -1 : static_cast<int16_t>(cfg.pa);
+  // With pa_pin, esp_codec_dev turns the amplifier on in esp_codec_dev_open()
+  // and leaves it on; muting only writes a DAC register. speaker_pa boards
+  // keep it off while idle and drop it as soon as playback is aborted.
+  dac.pa_pin = cfg.speaker_pa ? -1 : static_cast<int16_t>(cfg.pa);
   dac.pa_reverted = false;
   dac.master_mode = false;
-  dac.use_mclk = !cfg.stereo32;  // V2 factory decoder derives its clock from BCLK
+  dac.use_mclk = cfg.dac_mclk;
   dac.hw_gain.pa_voltage = cfg.amp_supply_v;
   dac.hw_gain.codec_dac_voltage = 3.3;
   esp_codec_dev_cfg_t out_cfg = {};
@@ -117,7 +118,7 @@ bool CodecAudio::begin(const CodecAudioConfig& cfg, i2c_master_bus_handle_t bus)
   adc_i2c.bus_handle = bus;
   es7210_codec_cfg_t adc = {};
   adc.ctrl_if = audio_codec_new_i2c_ctrl(&adc_i2c);
-  adc.mic_selected = cfg.stereo32 ? 0x0f : kMic1And2;  // RMNM: MIC1 reference, MIC2/4 microphones
+  adc.mic_selected = cfg.es7210_mics;
   esp_codec_dev_cfg_t in_cfg = {};
   in_cfg.dev_type = ESP_CODEC_DEV_TYPE_IN;
   in_cfg.codec_if = es7210_codec_new(&adc);
@@ -136,7 +137,6 @@ bool CodecAudio::begin(const CodecAudioConfig& cfg, i2c_master_bus_handle_t bus)
     esp_codec_dev_set_out_mute(out_, true);  // unmuted while something plays
   }
   if (in_) esp_codec_dev_set_in_gain(in_, cfg.mic_gain_db);
-  if (cfg.stereo32 && cfg.pa >= 0) gpio_set_level(static_cast<gpio_num_t>(cfg.pa), 0);
   ESP_LOGI(TAG, "codecs: speaker %s, microphones %s", out_ ? "ready" : "missing", in_ ? "ready" : "missing");
   return out_ || in_;
 }
@@ -152,12 +152,7 @@ bool CodecMic::begin(esp_codec_dev_handle_t dev, bool stereo32) {
     raw_ = static_cast<int16_t*>(heap_caps_malloc(kMicChunk * 4 * sizeof(int16_t), MALLOC_CAP_8BIT));
     if (!raw_) return false;
   }
-  if (xTaskCreate(&CodecMic::task, "hg-mic", 4096, this, 6, nullptr) != pdPASS) {
-    heap_caps_free(raw_);
-    raw_ = nullptr;
-    dev_ = nullptr;
-    return false;
-  }
+  xTaskCreate(&CodecMic::task, "hg-mic", 4096, this, 6, nullptr);
   return true;
 }
 
@@ -200,17 +195,17 @@ bool CodecSpeaker::begin(esp_codec_dev_handle_t dev, bool stereo32, int pa) {
   else buffer_ = xStreamBufferCreate(16 * 1024, 1);
   if (!buffer_) return false;
   stereo32_ = stereo32;
-  pa_ = pa;
+  if (pa >= 0) {
+    const auto pin = static_cast<gpio_num_t>(pa);
+    pa_.emplace([this](void* chunk, size_t bytes) { return xStreamBufferReceive(buffer_, chunk, bytes, 0); },
+                [this] { xStreamBufferReset(buffer_); },
+                [pin](bool on) { gpio_set_level(pin, on); });
+  }
   if (stereo32) {
     stereo_ = static_cast<int32_t*>(heap_caps_malloc(kSpeakerChunk * 2 * sizeof(int32_t), MALLOC_CAP_8BIT));
     if (!stereo_) return false;
   }
-  if (xTaskCreate(&CodecSpeaker::task, "hg-spk", 4096, this, 7, nullptr) != pdPASS) {
-    heap_caps_free(stereo_);
-    stereo_ = nullptr;
-    dev_ = nullptr;
-    return false;
-  }
+  xTaskCreate(&CodecSpeaker::task, "hg-spk", 4096, this, 7, nullptr);
   return true;
 }
 
@@ -228,8 +223,6 @@ bool CodecSpeaker::begin(uint32_t sample_rate) {
 }
 
 void CodecSpeaker::write(const int16_t* samples, size_t count) {
-  std::unique_lock<std::mutex> lock(pa_lock_, std::defer_lock);
-  if (pa_ >= 0) lock.lock();
   if (!open_) return;
   size_t bytes = count * sizeof(int16_t);
   size_t sent = xStreamBufferSend(buffer_, samples, bytes, 0);
@@ -242,18 +235,10 @@ void CodecSpeaker::end() {
 }
 
 void CodecSpeaker::abort() {
-  std::unique_lock<std::mutex> lock(pa_lock_, std::defer_lock);
-  if (pa_ >= 0) lock.lock();
   open_ = false;
   draining_ = false;
   flush_ = true;
-  if (pa_ >= 0) {
-    // V2 receive/send are nonblocking under this lock, so reset cannot
-    // race a blocked reader or discard samples from the subsequent begin().
-    xStreamBufferReset(buffer_);
-    ++pa_generation_;
-    gpio_set_level(static_cast<gpio_num_t>(pa_), 0);
-  }
+  if (pa_) pa_->abort();
 }
 
 bool CodecSpeaker::busy() const {
@@ -268,53 +253,38 @@ void CodecSpeaker::task(void* arg) {
   auto* self = static_cast<CodecSpeaker*>(arg);
   int16_t chunk[kSpeakerChunk];
   int32_t* stereo = self->stereo_;
+  auto& pa = self->pa_;
   bool playing = false;
   for (;;) {
     if (self->flush_.exchange(false)) {
-      // V2 already reset synchronously in abort(), before new samples arrived.
-      if (self->pa_ < 0) xStreamBufferReset(self->buffer_);
-      if (self->pa_ >= 0) {
-        {
-          std::lock_guard<std::mutex> lock(self->pa_lock_);
-          gpio_set_level(static_cast<gpio_num_t>(self->pa_), 0);
-        }
+      if (pa) {
+        // abort() already emptied the queue and turned the amplifier off.
         esp_codec_dev_set_out_mute(self->dev_, true);
         playing = false;
+      } else {
+        xStreamBufferReset(self->buffer_);
       }
     }
     uint32_t generation = 0;
-    size_t got = 0;
-    if (self->pa_ >= 0) {
-      std::lock_guard<std::mutex> lock(self->pa_lock_);
-      generation = self->pa_generation_;
-      got = xStreamBufferReceive(self->buffer_, chunk, sizeof(chunk), 0);
-    } else {
-      got = xStreamBufferReceive(self->buffer_, chunk, sizeof(chunk), pdMS_TO_TICKS(20));
-    }
+    size_t got = pa ? pa->receive(chunk, sizeof(chunk), generation)
+                    : xStreamBufferReceive(self->buffer_, chunk, sizeof(chunk), pdMS_TO_TICKS(20));
     if (got == 0) {
       if (playing && !self->open_) {
         // Everything queued has been written out: mute so the amplifier stays quiet.
         self->draining_ = false;
         esp_codec_dev_set_out_mute(self->dev_, true);
-        if (self->pa_ >= 0) {
-          std::lock_guard<std::mutex> lock(self->pa_lock_);
-          gpio_set_level(static_cast<gpio_num_t>(self->pa_), 0);
-        }
+        if (pa) pa->disable();
         playing = false;
       }
-      if (self->pa_ >= 0) vTaskDelay(pdMS_TO_TICKS(20));
+      if (pa) vTaskDelay(pdMS_TO_TICKS(20));
       continue;
     }
     if (!playing) {
       esp_codec_dev_set_out_mute(self->dev_, false);
       playing = true;
     }
-    if (self->pa_ >= 0) {
-      std::lock_guard<std::mutex> lock(self->pa_lock_);
-      // An abort during receive/unmute must not re-enable the old reply.
-      if (generation != self->pa_generation_ || self->flush_.load()) continue;
-      gpio_set_level(static_cast<gpio_num_t>(self->pa_), 1);
-    }
+    // Drop a chunk taken before an abort() rather than replay it.
+    if (pa && (self->flush_ || !pa->enable(generation))) continue;
     if (self->stereo32_) {
       const size_t frames = got / sizeof(int16_t);
       hg::ws185_stereo32(chunk, stereo, frames);
