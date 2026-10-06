@@ -217,7 +217,8 @@ class AmoledDisplay final : public hg::Display {
   SemaphoreHandle_t done_ = nullptr;
 };
 
-bool ws185_reset_peripherals(i2c_master_bus_handle_t bus);
+// Pulses the board's TCA9554 reset lines before the display and touch start.
+bool tca9554_reset(i2c_master_bus_handle_t bus, const ExpanderResetConfig& reset);
 
 namespace i2c {
 // The board's shared I2C master bus (created on first use).

@@ -173,7 +173,7 @@ extern "C" void app_main(void) {
   if (g_updater.capacity()) hal.updater = &g_updater;
   i2c_master_bus_handle_t i2c_bus = hgp::i2c::bus(board.i2c);
   const bool peripherals_ready = (!board.cores3 || g_cores3.begin(i2c_bus)) &&
-      (!board.tca9554_resets || hgp::ws185_reset_peripherals(i2c_bus));
+      (!board.expander_reset.mask || hgp::tca9554_reset(i2c_bus, board.expander_reset));
   if (!peripherals_ready) ESP_LOGE(TAG, "peripheral reset initialization failed");
   if (board.cores3 && peripherals_ready)
     g_display.board_backlight = [](uint8_t percent) { g_cores3.set_backlight(percent); };

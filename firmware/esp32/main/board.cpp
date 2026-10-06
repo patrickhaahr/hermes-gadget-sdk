@@ -122,7 +122,7 @@ BoardConfig make() {
   b.lcd.backlight = 5;
   b.lcd.spi_mhz = 80;
   b.i2c = {11, 10, 400000};
-  b.tca9554_resets = true;
+  b.expander_reset.mask = 0x03;  // P0 touch reset, P1 LCD reset (EXIO1/EXIO2 in the demo)
   b.codec.enabled = true;
   b.codec.mclk = 2;
   b.codec.bclk = 48;

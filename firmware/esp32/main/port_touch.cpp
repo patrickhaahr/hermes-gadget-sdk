@@ -97,7 +97,7 @@ bool TouchInput::read_touch(TouchSample& out) {
     const uint8_t reg = 0x02;
     uint8_t data[5] = {};
     if (i2c_master_transmit_receive(touch_dev_, &reg, 1, data, sizeof(data), 20) != ESP_OK) return false;
-    return hg::ws185_touch(data, out.touching, out.x, out.y);
+    return hg::cst816_touch(data, touch_.width, touch_.height, out.touching, out.x, out.y);
   }
   const uint8_t reg[2] = {0xD0, 0x00};
   if (i2c_master_transmit(touch_dev_, reg, sizeof(reg), 20) != ESP_OK) return false;

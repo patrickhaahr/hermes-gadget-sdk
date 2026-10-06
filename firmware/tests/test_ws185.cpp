@@ -1,13 +1,15 @@
 #include <array>
 #include <vector>
 #include "check.hpp"
+#include "tca9554.hpp"
 #include "ws185.hpp"
 
-TEST("WS185: reset latch before output mode, preserve all other expander bits") {
+TEST("TCA9554 reset: latch low before output mode, preserve all other expander bits") {
   std::array<uint8_t, 4> regs = {0, 0xa5, 0x5a, 0xff};
   std::vector<std::pair<uint8_t, uint8_t>> writes;
   std::vector<uint32_t> delays;
-  hg::Ws185Resets resets(
+  hg::Tca9554Reset resets(
+      0x03,
       [&](uint8_t reg, uint8_t& value) { value = regs[reg]; return true; },
       [&](uint8_t reg, uint8_t value) { regs[reg] = value; writes.emplace_back(reg, value); return true; },
       [&](uint32_t ms) { delays.push_back(ms); });
@@ -23,10 +25,25 @@ TEST("WS185: reset latch before output mode, preserve all other expander bits") 
   CHECK(delays == std::vector<uint32_t>({10, 50}));
 }
 
-TEST("WS185: every failed expander operation stops initialization") {
+TEST("TCA9554 reset: another board's mask changes only its own bits") {
+  std::array<uint8_t, 4> regs = {0, 0x00, 0, 0xff};
+  std::vector<std::pair<uint8_t, uint8_t>> writes;
+  hg::Tca9554Reset resets(
+      0x05,
+      [&](uint8_t reg, uint8_t& value) { value = regs[reg]; return true; },
+      [&](uint8_t reg, uint8_t value) { regs[reg] = value; writes.emplace_back(reg, value); return true; },
+      [](uint32_t) {});
+  CHECK(resets.begin());
+  CHECK_EQ(writes.size(), size_t(3));
+  CHECK_EQ(writes[1].second, uint8_t(0xfa));
+  CHECK_EQ(regs[1], uint8_t(0x05));
+}
+
+TEST("TCA9554 reset: every failed expander operation stops initialization") {
   for (int fail = 0; fail < 5; ++fail) {
     int operation = 0, delays = 0;
-    hg::Ws185Resets resets(
+    hg::Tca9554Reset resets(
+        0x03,
         [&](uint8_t, uint8_t& value) { value = 0xff; return operation++ != fail; },
         [&](uint8_t, uint8_t) { return operation++ != fail; },
         [&](uint32_t) { ++delays; });
@@ -36,18 +53,18 @@ TEST("WS185: every failed expander operation stops initialization") {
   }
 }
 
-TEST("WS185: CST816 count and 12-bit coordinates, release and invalid reports") {
+TEST("CST816: count and 12-bit coordinates, release and invalid reports") {
   bool down = false;
   int16_t x = 0, y = 0;
   uint8_t data[] = {1, 0x81, 0x67, 0x41, 0x66};
-  CHECK(hg::ws185_touch(data, down, x, y));
+  CHECK(hg::cst816_touch(data, 360, 360, down, x, y));
   CHECK(down);
   CHECK_EQ(x, int16_t(359));
   CHECK_EQ(y, int16_t(358));
-  data[2] = 0x68;  // 360: outside the glass, not silently clamped
-  CHECK(!hg::ws185_touch(data, down, x, y));
+  CHECK(!hg::cst816_touch(data, 359, 360, down, x, y));  // outside the glass, not clamped
+  CHECK(!hg::cst816_touch(data, 360, 358, down, x, y));
   data[0] = 0;
-  CHECK(hg::ws185_touch(data, down, x, y));
+  CHECK(hg::cst816_touch(data, 360, 360, down, x, y));
   CHECK(!down);
 }
 

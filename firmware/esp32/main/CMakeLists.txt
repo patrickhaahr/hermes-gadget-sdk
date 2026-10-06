@@ -13,7 +13,7 @@ idf_component_register(
         "port_buttons.cpp"
         "port_codec.cpp"
         "port_cores3.cpp"
-        "port_ws185.cpp"
+        "port_tca9554.cpp"
         "port_console.cpp"
         "port_diag.cpp"
         "port_display.cpp"

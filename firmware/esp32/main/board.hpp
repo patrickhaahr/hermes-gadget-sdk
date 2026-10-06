@@ -98,6 +98,13 @@ struct ExpanderKeyConfig {
   bool active_high = true;
 };
 
+// Reset lines on a TCA9554 I/O expander, pulsed before the display and touch
+// start. Only the bits in `mask` change.
+struct ExpanderResetConfig {
+  uint8_t addr = 0x20;
+  uint8_t mask = 0;  // 0 = no expander resets
+};
+
 struct ButtonConfig {
   int talk = -1, cancel = -1, up = -1, down = -1;  // active-low GPIOs, -1 = absent
 };
@@ -125,10 +132,10 @@ struct BoardConfig {
   CodecAudioConfig codec;
   TouchConfig touch;
   ExpanderKeyConfig pwr_key;
+  ExpanderResetConfig expander_reset;
   bool axp2101 = false;
   bool axp_audio_supply = false;
   bool cores3 = false;
-  bool tca9554_resets = false;  // 1.85C: P0 touch reset, P1 LCD reset
   LatchPowerConfig latch_power;
   int status_led = -1;
   const char* talk_label = "TALK";
