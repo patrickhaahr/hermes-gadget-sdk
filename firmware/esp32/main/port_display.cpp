@@ -86,7 +86,7 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
   done_ = xSemaphoreCreateBinary();
   // A band takes about 2.6 ms on a 320-px panel at 40 MHz. Allow ten times the
   // band at the configured clock, and never less than 100 ms.
-  const uint32_t band_ms = static_cast<uint32_t>(cfg.width) * kBounceRows * 16 / (cfg.spi_mhz * 1000u) + 1;
+  const uint32_t band_ms = static_cast<uint32_t>(cfg.width) * kBounceRows * 16 / (std::max(1, cfg.spi_mhz) * 1000u) + 1;
   bands_.emplace(
       cfg.height, kBounceRows, std::max<uint32_t>(100, 10 * band_ms),
       [this](int y, int rows) {
