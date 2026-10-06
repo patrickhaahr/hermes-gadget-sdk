@@ -133,7 +133,7 @@ class SpiDisplay final : public hg::Display {
   uint16_t* bounce_ = nullptr;  // DMA-capable staging rows
   int bounce_rows_ = 0;
   SemaphoreHandle_t done_ = nullptr;
-  bool transfer_failed_ = false;  // Keep a potentially DMA-owned buffer untouched after failure.
+  bool transfer_failed_ = false;  // ST77916 only: see flush()
 };
 
 // I2S MEMS microphone: a reader task posts 20 ms PCM16 chunks while capturing.

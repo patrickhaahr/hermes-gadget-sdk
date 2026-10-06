@@ -87,7 +87,6 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
   }
   std::memset(fb_, 0, px * 2);
   done_ = xSemaphoreCreateBinary();
-  if (!done_) return false;
 
   spi_bus_config_t bus = {};
   bus.mosi_io_num = cfg.mosi;
@@ -209,17 +208,17 @@ void SpiDisplay::flush(uint16_t y0, uint16_t y1) {
   for (int y = y0; y < y1; y += bounce_rows_) {
     int rows = std::min<int>(bounce_rows_, y1 - y);
     std::memcpy(bounce_, fb_ + static_cast<size_t>(y) * w, static_cast<size_t>(rows) * w * 2);
-    if (esp_lcd_panel_draw_bitmap(panel_, 0, y, w, y + rows, bounce_) != ESP_OK) {
-      transfer_failed_ = true;
-      ESP_LOGE(TAG, "LCD transfer failed");
-      return;
-    }
+    const esp_err_t drawn = esp_lcd_panel_draw_bitmap(panel_, 0, y, w, y + rows, bounce_);
     // The bounce buffer is reused: wait until the DMA transfer has finished.
-    if (xSemaphoreTake(done_, pdMS_TO_TICKS(250)) != pdTRUE) {
-      // DMA completion is unknown. Do not free/reuse staging memory or submit
-      // further transfers. Keep the app responsive; manual reboot can recover.
+    if (cfg_.controller != LcdController::St77916) {
+      xSemaphoreTake(done_, pdMS_TO_TICKS(100));
+      continue;
+    }
+    // ST77916: after an error or a missed completion the QSPI DMA may still own
+    // bounce_, so stop drawing rather than overwrite it. A reboot recovers.
+    if (drawn != ESP_OK || xSemaphoreTake(done_, pdMS_TO_TICKS(250)) != pdTRUE) {
       transfer_failed_ = true;
-      ESP_LOGE(TAG, "LCD transfer timed out; display updates disabled until reboot");
+      ESP_LOGE(TAG, "ST77916 transfer failed; display updates stopped until reboot");
       return;
     }
   }
