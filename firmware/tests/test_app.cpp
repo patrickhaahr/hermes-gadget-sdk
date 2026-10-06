@@ -1065,17 +1065,62 @@ TEST("settings: title hold and menu swipe work without starting a recording") {
   CHECK(r.app.screen() == hg::Screen::Ready);
 }
 
-TEST("settings: round header redraws its return label and restores settings label") {
+// The settings target of a round panel: where the UI square sits, and the hold target inside it.
+struct RoundTarget {
+  int diameter, left, top, width, height;
+};
+constexpr RoundTarget kRound360{360, 120, 53, 120, 36};
+constexpr RoundTarget kRound466{466, 112, 68, 240, 48};
+
+static void check_round_target_gestures(const RoundTarget& t) {
+  Rig r(Rig::touch_profile());
+  r.fake.make_round(t.diameter);
+  r.bring_online(true);
+  const int right = t.left + t.width - 1, bottom = t.top + t.height - 1, cx = t.left + t.width / 2;
+  CHECK(r.app.settings_title_hit(t.left, t.top));
+  CHECK(r.app.settings_title_hit(right, bottom));
+  CHECK(!r.app.settings_title_hit(t.left - 1, t.top + 1));
+  CHECK(!r.app.settings_title_hit(right + 1, t.top + 1));
+  CHECK(!r.app.settings_title_hit(cx, t.top - 1));
+  CHECK(!r.app.settings_title_hit(cx, bottom + 1));
+  hg::TouchGestures touch(r.app);
+  // Holding the target opens settings without ever starting the microphone.
+  touch.update(true, cx, t.top + 10, r.fake.clock);
+  r.advance(200);
+  touch.tick(r.fake.clock);
+  CHECK(!r.fake.mic_on);
+  r.advance(900);
+  touch.tick(r.fake.clock);
+  touch.update(false, 0, 0, r.fake.clock);
+  CHECK(r.app.settings_open());
+  CHECK(!r.fake.mic_on);
+  // And closes it again.
+  touch.update(true, cx, t.top + 10, r.fake.clock);
+  r.advance(1100);
+  touch.tick(r.fake.clock);
+  touch.update(false, 0, 0, r.fake.clock);
+  CHECK(!r.app.settings_open());
+  // Just outside the target is still hold-to-talk.
+  touch.update(true, right + 1, t.top + 10, r.fake.clock);
+  r.advance(200);
+  touch.tick(r.fake.clock);
+  CHECK(r.fake.mic_on);
+  r.app.console("cancel");
+  touch.update(false, 0, 0, r.fake.clock);
+  CHECK(!r.app.settings_open());
+}
+
+static void check_round_header_label(const RoundTarget& t) {
   FakeHal display;
-  display.make_round(360);
+  display.make_round(t.diameter);
   hg::Ui ui(display);
   hg::UiModel m;
   m.screen = hg::Screen::Ready;
   m.link = hg::Link::Online;
   ui.render(m);
   const auto top = [&]() {
-    return std::vector<uint16_t>(display.fb.begin() + 53 * 360,
-                                 display.fb.begin() + 89 * 360);
+    return std::vector<uint16_t>(display.fb.begin() + t.top * t.diameter,
+                                 display.fb.begin() + (t.top + t.height) * t.diameter);
   };
   const auto ready = top();
   m.screen = hg::Screen::Settings;
@@ -1086,36 +1131,39 @@ TEST("settings: round header redraws its return label and restores settings labe
   CHECK(top() == ready);
 }
 
-TEST("settings: round 360 target reserves its full visible area from TALK") {
-  Rig r(Rig::touch_profile());
-  r.fake.make_round(360);
+TEST("settings: round 360 target holds without recording and leaves TALK outside it") {
+  check_round_target_gestures(kRound360);
+}
+
+TEST("settings: round 466 target holds without recording and leaves TALK outside it") {
+  check_round_target_gestures(kRound466);
+}
+
+TEST("settings: round header redraws its return label and restores settings label") {
+  check_round_header_label(kRound360);
+  check_round_header_label(kRound466);
+}
+
+TEST("settings: rectangular boards keep the full-width title strip and their header") {
+  Rig r(Rig::touch_profile());  // 320x240: scale 2, so the strip is 22 px tall
   r.bring_online(true);
-  CHECK(r.app.settings_title_hit(120, 53));
-  CHECK(r.app.settings_title_hit(239, 88));
-  CHECK(!r.app.settings_title_hit(119, 70));
-  CHECK(!r.app.settings_title_hit(240, 70));
-  CHECK(!r.app.settings_title_hit(180, 89));
-  hg::TouchGestures touch(r.app);
-  touch.update(true, 180, 80, r.fake.clock);
-  r.advance(200);
-  touch.tick(r.fake.clock);
-  CHECK(!r.fake.mic_on);
-  r.advance(900);
-  touch.tick(r.fake.clock);
-  touch.update(false, 0, 0, r.fake.clock);
-  CHECK(r.app.settings_open());
-  CHECK(!r.fake.mic_on);
-  touch.update(true, 180, 80, r.fake.clock);
-  r.advance(1100);
-  touch.tick(r.fake.clock);
-  touch.update(false, 0, 0, r.fake.clock);
-  CHECK(!r.app.settings_open());
-  touch.update(true, 180, 180, r.fake.clock);
-  r.advance(200);
-  touch.tick(r.fake.clock);
-  CHECK(r.fake.mic_on);
-  r.app.console("cancel");
-  touch.update(false, 0, 0, r.fake.clock);
+  CHECK(r.app.settings_title_hit(0, 0));
+  CHECK(r.app.settings_title_hit(319, 21));
+  CHECK(!r.app.settings_title_hit(319, 22));
+  CHECK(!r.app.settings_title_hit(160, 22));
+  FakeHal display;
+  hg::Ui ui(display);
+  hg::UiModel m;
+  m.screen = hg::Screen::Ready;
+  m.link = hg::Link::Online;
+  ui.render(m);
+  const auto top = [&]() {
+    return std::vector<uint16_t>(display.fb.begin(), display.fb.begin() + 22 * 320);
+  };
+  const auto ready = top();
+  m.screen = hg::Screen::Settings;
+  ui.render(m);
+  CHECK(top() == ready);  // no BACK TO HERMES label on a rectangular header
 }
 
 TEST("power: idle screen dims, sleeps and consumes the wake input without recording") {
