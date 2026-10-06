@@ -77,16 +77,18 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
   const size_t px = static_cast<size_t>(cfg.width) * cfg.height;
   fb_ = static_cast<uint16_t*>(heap_caps_malloc(px * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!fb_) fb_ = static_cast<uint16_t*>(heap_caps_malloc(px * 2, MALLOC_CAP_8BIT));
-  bounce_rows_ = kBounceRows;
-  bounce_ = static_cast<uint16_t*>(heap_caps_malloc(static_cast<size_t>(cfg.width) * bounce_rows_ * 2, MALLOC_CAP_DMA));
+  bounce_ = static_cast<uint16_t*>(heap_caps_malloc(static_cast<size_t>(cfg.width) * kBounceRows * 2, MALLOC_CAP_DMA));
   if (!fb_ || !bounce_) {
     ESP_LOGE(TAG, "not enough memory for a %ux%u framebuffer", cfg.width, cfg.height);
     return false;
   }
   std::memset(fb_, 0, px * 2);
   done_ = xSemaphoreCreateBinary();
+  // A band takes about 2.6 ms on a 320-px panel at 40 MHz. Allow ten times the
+  // band at the configured clock, and never less than 100 ms.
+  const uint32_t band_ms = static_cast<uint32_t>(cfg.width) * kBounceRows * 16 / (cfg.spi_mhz * 1000u) + 1;
   bands_.emplace(
-      cfg.height, bounce_rows_,
+      cfg.height, kBounceRows, std::max<uint32_t>(100, 10 * band_ms),
       [this](int y, int rows) {
         const int w = cfg_.width;
         std::memcpy(bounce_, fb_ + static_cast<size_t>(y) * w, static_cast<size_t>(rows) * w * 2);
@@ -100,7 +102,7 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
   bus.sclk_io_num = cfg.sclk;
   bus.quadwp_io_num = -1;
   bus.quadhd_io_num = -1;
-  bus.max_transfer_sz = cfg.width * bounce_rows_ * 2;
+  bus.max_transfer_sz = cfg.width * kBounceRows * 2;
   ESP_ERROR_CHECK(spi_bus_initialize(kHost, &bus, SPI_DMA_CH_AUTO));
 
   esp_lcd_panel_io_spi_config_t io_cfg = {};

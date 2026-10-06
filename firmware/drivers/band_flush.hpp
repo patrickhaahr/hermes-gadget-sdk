@@ -18,12 +18,11 @@ class BandFlush {
   using Submit = std::function<bool(int y, int rows)>;
   // Waits up to timeout_ms for the last transfer to complete; true if it did.
   using Wait = std::function<bool(uint32_t timeout_ms)>;
-  // A band takes under 3 ms on the SpiDisplay boards (320 x 20 px at 40 MHz).
-  static constexpr uint32_t kTimeoutMs = 100;
   enum class Event { None, TimedOut, Resumed, Failed };
 
-  BandFlush(int height, int band_rows, Submit submit, Wait wait)
-      : height_(height), band_rows_(band_rows), submit_(std::move(submit)), wait_(std::move(wait)) {}
+  BandFlush(int height, int band_rows, uint32_t timeout_ms, Submit submit, Wait wait)
+      : height_(height), band_rows_(band_rows), timeout_ms_(timeout_ms),
+        submit_(std::move(submit)), wait_(std::move(wait)) {}
 
   Event flush(int y0, int y1) {
     Event event = Event::None;
@@ -42,7 +41,7 @@ class BandFlush {
         state_ = State::Failed;
         return Event::Failed;
       }
-      if (!wait_(kTimeoutMs)) {
+      if (!wait_(timeout_ms_)) {
         state_ = State::Pending;
         return Event::TimedOut;
       }
@@ -54,6 +53,7 @@ class BandFlush {
   enum class State { Ready, Pending, Failed };
   int height_;
   int band_rows_;
+  uint32_t timeout_ms_;
   Submit submit_;
   Wait wait_;
   State state_ = State::Ready;

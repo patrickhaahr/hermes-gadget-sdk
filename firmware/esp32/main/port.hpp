@@ -132,7 +132,6 @@ class SpiDisplay final : public hg::Display {
   esp_lcd_panel_handle_t panel_ = nullptr;
   uint16_t* fb_ = nullptr;
   uint16_t* bounce_ = nullptr;  // DMA-capable staging rows
-  int bounce_rows_ = 0;
   SemaphoreHandle_t done_ = nullptr;
   std::optional<hg::BandFlush> bands_;
 };
