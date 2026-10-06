@@ -48,6 +48,12 @@ and PCM conversion adapters are original code using documented hardware facts.
 The existing `LICENSES/Apache-2.0.txt` supplies the license text; packaging
 includes it, this attribution, and the managed driver licenses.
 
+The T-Display-S3 ST7789 initialization values and AW9364 backlight control follow
+[LilyGO's factory example](https://github.com/Xinyuan-LilyGO/T-Display-S3/blob/ec889e789b3cf093412689a143f7f37b42b56af7/examples/factory/factory.ino),
+revision `ec889e789b3cf093412689a143f7f37b42b56af7`, MIT, Copyright (c) 2022 Xinyuan-LilyGO.
+The ESP-IDF adaptation and timing changes are recorded in [NOTICE](NOTICE), with
+the upstream license in [LICENSES/LilyGO-MIT.txt](LICENSES/LilyGO-MIT.txt).
+
 ## Release packages
 
 Firmware packages include `hermes-gadget-<version>-licenses.zip` with this document, the project's notices, license texts, and notices found in the installed ESP-IDF and managed component sources. The browser installer links that archive when the release supplies it.

@@ -61,7 +61,10 @@ def test_v2_profile_metadata_and_ci_release_discovery():
     meta = json.loads((ROOT / "firmware/esp32/boards" / board_dir / "board.json").read_text())
     assert meta["ready_made"] and "experimental" in meta["title"]
     assert "Rev2.0 only" in meta["summary"] and "no software AEC" in meta["summary"]
-    assert env in (ROOT / ".github/workflows/ci.yml").read_text()
+    ci = (ROOT / ".github/workflows/ci.yml").read_text()
+    assert "from tools.package_release import environments" in ci
+    assert 'list(environments(Path(".")))' in ci
+    assert "fromJSON(needs.boards.outputs.boards)" in ci
     release = (ROOT / ".github/workflows/release.yml").read_text()
     assert "pio run" in release and "package_release.py --all" in release
     defaults = (ROOT / "firmware/esp32/boards" / board_dir / "sdkconfig.defaults").read_text()

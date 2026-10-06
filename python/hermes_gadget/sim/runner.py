@@ -52,6 +52,9 @@ BOARDS = {
     "sim-360x360-round": Board("sim-360x360-round", 360, 360, scroll_buttons=False, round=True, touch=True),
     # A 1.75" round AMOLED touch board: no scroll buttons.
     "sim-466x466-round": Board("sim-466x466-round", 466, 466, scroll_buttons=False, round=True, touch=True),
+    # A 1.9" 320x170 board with no audio hardware (e.g. LilyGO T-Display-S3).
+    "sim-320x170-nospeaker": Board("sim-320x170-nospeaker", 320, 170, mic=False, speaker=False,
+                                   scroll_buttons=False),
 }
 
 
