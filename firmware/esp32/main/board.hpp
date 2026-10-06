@@ -30,6 +30,7 @@ struct LcdConfig {
   LcdBus bus{};
   LcdController controller = LcdController::St7789;
   bool reset_active_high = false;
+  bool backlight_invert = false;  // active-low GPIO backlight, independent of pixel inversion
   int d1 = -1, d2 = -1, d3 = -1;  // QSPI data0 uses mosi
   bool round = false;
 };

@@ -64,6 +64,8 @@ Implement `hg::Display` (`firmware/core/include/hg/hal.hpp`):
 
 `SpiDisplay` in `port_display.cpp` is the reference. To add ILI9341, GC9A01 or another panel, swap `esp_lcd_new_panel_st7789` for the matching `esp_lcd` driver (most are managed components). For RGB/parallel or QSPI AMOLED panels, the same interface applies with that panel's `esp_lcd` IO.
 
+For an active-low GPIO backlight driven by `SpiDisplay`, set `b.lcd.backlight_invert = true` in the board's `make()`. The default is `false` for active-high backlights. LEDC inverts the output so brightness still ranges from 0 percent off to 100 percent on. This flag is separate from `b.lcd.invert`, which controls pixel colors, and does not apply to board-specific backlight callbacks or the T-Display-S3's AW9364 driver. Verify off, intermediate brightness, full brightness, and screen-timeout wake on the physical board.
+
 **Round panels** (for example a 1.75" 466×466 AMOLED): set `round = true`. The UI then draws inside the square inscribed in the circle, keeps everything else dark, centres the status row, and tells the host `"shape": "round"`. Try it with the `sim-466x466-round` simulator board.
 
 - **Monochrome or e-paper:** convert RGB565 to your format in `flush()`. The UI uses dark backgrounds with light text and accents, so thresholding the luminance works.

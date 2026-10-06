@@ -184,6 +184,7 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
     ch.channel = kBlChannel;
     ch.timer_sel = LEDC_TIMER_0;
     ch.duty = 0;
+    ch.flags.output_invert = cfg.backlight_invert;
     ESP_ERROR_CHECK(ledc_channel_config(&ch));
     set_backlight(100);
   }
