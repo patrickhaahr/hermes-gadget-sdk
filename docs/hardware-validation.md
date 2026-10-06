@@ -27,7 +27,7 @@ CI builds and packages these profiles. The browser installer lists profiles incl
 
 - **Board:** PCB Rev2.0 speaker-box version with ESP32-S3, 16 MB flash and 8 MB PSRAM, powered over USB.
 - **Firmware:** builds of this port's branch up to `edcbd66`, not the split board revision. All of them had the SPI flush-timeout change for every `SpiDisplay` panel. The later ones also had the round settings target. The network tests used the branch's own mapped-IPv4 provisioning guard, which main's `ipv4_of` replaces.
-- **Confirmed by the operator:** a readable, upright display; basic touch and brightness; a microphone level that follows speech; the local test tone; Wi-Fi setup; a WSS connection; pairing; and a spoken question with an audible Hermes reply.
+- **Confirmed on this board:** a readable, upright display; basic touch and brightness; a microphone level that follows speech; the local test tone; Wi-Fi setup; a WSS connection; pairing; and a spoken question with an audible Hermes reply.
 - **Updates:** app-only updates passed readback verification. NVS was byte-identical before and after, and the same paired identity reconnected.
 - **Power cycle:** after USB was unplugged and plugged back in, the device reconnected without Wi-Fi setup or re-pairing. This does not test losing Wi-Fi while powered.
 - **Not verified:** battery operation, OTA and rollback, long-run stability, interrupting touch or audio, recovery from injected faults, Wi-Fi loss while powered, each microphone on its own, and touch accuracy across the whole screen.
