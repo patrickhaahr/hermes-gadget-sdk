@@ -39,10 +39,15 @@ proxy, reached pairing, and the operator approved it. The operator confirmed
 a spoken question received an audible Hermes reply. This establishes a basic
 end-to-end voice turn, not comprehensive audio quality or echo cancellation.
 
-Unresolved: holding the title bar to open settings. Not yet verified: complete
+Previously unresolved: holding the title bar to open settings. The round layout
+now reserves a visible, enlarged SETTINGS target; native regression coverage
+confirms opening/closing without microphone activation and TALK outside it.
+The app-only update passed readback verification, preserved NVS byte-for-byte,
+and reconnected with the same paired identity; physical gesture confirmation
+is pending. Not yet verified: complete
 color/touch alignment, independent microphones and slot assignment, transcript
 accuracy, cancellation/interrupt behavior, PA timing, fault injection/recovery,
-pairing persistence across restart, provisioning negative cases on hardware,
+provisioning negative cases on hardware,
 network-loss recovery, battery operation, OTA/rollback, and two-hour stability.
 Battery telemetry and software shutdown are not implemented. Software AEC is
 not implemented. The port remains experimental pending the full checklist.
