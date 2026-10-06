@@ -1065,6 +1065,38 @@ TEST("settings: title hold and menu swipe work without starting a recording") {
   CHECK(r.app.screen() == hg::Screen::Ready);
 }
 
+TEST("settings: round 360 target reserves its full visible area from TALK") {
+  Rig r(Rig::touch_profile());
+  r.fake.make_round(360);
+  r.bring_online(true);
+  CHECK(r.app.settings_title_hit(120, 53));
+  CHECK(r.app.settings_title_hit(239, 88));
+  CHECK(!r.app.settings_title_hit(119, 70));
+  CHECK(!r.app.settings_title_hit(240, 70));
+  CHECK(!r.app.settings_title_hit(180, 89));
+  hg::TouchGestures touch(r.app);
+  touch.update(true, 180, 80, r.fake.clock);
+  r.advance(200);
+  touch.tick(r.fake.clock);
+  CHECK(!r.fake.mic_on);
+  r.advance(900);
+  touch.tick(r.fake.clock);
+  touch.update(false, 0, 0, r.fake.clock);
+  CHECK(r.app.settings_open());
+  CHECK(!r.fake.mic_on);
+  touch.update(true, 180, 80, r.fake.clock);
+  r.advance(1100);
+  touch.tick(r.fake.clock);
+  touch.update(false, 0, 0, r.fake.clock);
+  CHECK(!r.app.settings_open());
+  touch.update(true, 180, 180, r.fake.clock);
+  r.advance(200);
+  touch.tick(r.fake.clock);
+  CHECK(r.fake.mic_on);
+  r.app.console("cancel");
+  touch.update(false, 0, 0, r.fake.clock);
+}
+
 TEST("power: idle screen dims, sleeps and consumes the wake input without recording") {
   Rig r;
   r.fake.backlight = true;
