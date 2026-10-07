@@ -18,7 +18,8 @@ jobs:
     name: Changelog entry
     # Every pull request adds a line to CHANGELOG.md's Unreleased section, or carries the
     # no-changelog label (internal refactors, test-only fixes, dependency bumps).
-    if: github.event_name == 'pull_request'
+    # Dependabot's bumps are not user-facing; their PRs skip the check.
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -28,9 +29,13 @@ jobs:
       - name: Check
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
-          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          case ",$LABELS," in *,no-changelog,*) echo "no-changelog label: skipped"; exit 0;; esac
+          # Labels are read live, not from the event, so adding no-changelog and re-running the job works.
+          if gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json labels -q '.labels[].name' | grep -qx no-changelog; then
+            echo "no-changelog label: skipped"; exit 0
+          fi
           if git diff --name-only "$BASE...HEAD" | grep -qx CHANGELOG.md; then
             echo "CHANGELOG.md is updated"
           else
