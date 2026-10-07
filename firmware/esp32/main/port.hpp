@@ -19,6 +19,7 @@
 #include "axp2101.hpp"
 #include "band_flush.hpp"
 #include "cores3.hpp"
+#include "speaker_pa.hpp"
 #include "driver/i2c_master.h"
 #include "driver/i2s_std.h"
 #include "esp_codec_dev.h"
@@ -216,6 +217,9 @@ class AmoledDisplay final : public hg::Display {
   SemaphoreHandle_t done_ = nullptr;
 };
 
+// Pulses the board's TCA9554 reset lines before the display and touch start.
+bool tca9554_reset(i2c_master_bus_handle_t bus, const ExpanderResetConfig& reset);
+
 namespace i2c {
 // The board's shared I2C master bus (created on first use).
 i2c_master_bus_handle_t bus(const I2cBusConfig& cfg);
@@ -237,19 +241,21 @@ class CodecAudio {
 
 class CodecMic final : public hg::AudioIn {
  public:
-  bool begin(esp_codec_dev_handle_t dev);
+  bool begin(esp_codec_dev_handle_t dev, bool rmnm);
   bool start(uint32_t sample_rate) override;
   void stop() override { capturing_ = false; }
 
  private:
   static void task(void* arg);
   esp_codec_dev_handle_t dev_ = nullptr;
+  bool rmnm_ = false;
+  int16_t* raw_ = nullptr;
   std::atomic<bool> capturing_{false};
 };
 
 class CodecSpeaker final : public hg::AudioOut {
  public:
-  bool begin(esp_codec_dev_handle_t dev);
+  bool begin(esp_codec_dev_handle_t dev, bool stereo32, int pa);
   bool begin(uint32_t sample_rate) override;
   void write(const int16_t* samples, size_t count) override;
   void end() override;
@@ -260,6 +266,9 @@ class CodecSpeaker final : public hg::AudioOut {
  private:
   static void task(void* arg);
   esp_codec_dev_handle_t dev_ = nullptr;
+  bool stereo32_ = false;
+  int32_t* stereo_ = nullptr;
+  std::optional<hg::SpeakerPa> pa_;  // set when this speaker, not esp_codec_dev, drives the PA pin
   StreamBufferHandle_t buffer_ = nullptr;
   std::atomic<bool> open_{false};
   std::atomic<bool> draining_{false};

@@ -18,7 +18,7 @@ struct LcdBus {
   int pclk_mhz = 16;
 };
 
-enum class LcdController { St7789, Box3, CoreS3 };
+enum class LcdController { St7789, Box3, CoreS3, St77916 };
 
 struct LcdConfig {
   bool enabled = false;
@@ -31,6 +31,8 @@ struct LcdConfig {
   LcdController controller = LcdController::St7789;
   bool reset_active_high = false;
   bool backlight_invert = false;  // active-low GPIO backlight, independent of pixel inversion
+  int d1 = -1, d2 = -1, d3 = -1;  // QSPI data0 uses mosi
+  bool round = false;
 };
 
 struct I2sMicConfig {
@@ -69,10 +71,15 @@ struct CodecAudioConfig {
   float amp_supply_v = 5.0f;  // amplifier supply; the ES8311 driver sets its output level from it
   float mic_gain_db = 24.0f;
   SpeakerCodec speaker = SpeakerCodec::Es8311;
+  bool stereo32 = false;      // two 32-bit I2S slots per frame instead of one 16-bit slot
+  bool rmnm_mics = false;     // the ES7210 sends four 16-bit channels R M N M; average the M slots (ws185.hpp)
+  bool speaker_pa = false;    // CodecSpeaker drives `pa`, not esp_codec_dev (see CodecAudio::begin)
+  bool dac_mclk = true;       // false: the ES8311 derives its clock from BCLK
+  uint8_t es7210_mics = 0x03;  // ES7210_SEL_MIC1 | ES7210_SEL_MIC2
 };
 
 // Capacitive touch on the I2C bus: hold to talk, tap, swipe down to cancel.
-enum class TouchController { Cst9217, Box3, Ft5x06 };
+enum class TouchController { Cst9217, Box3, Ft5x06, Cst816 };
 
 struct TouchConfig {
   bool enabled = false;
@@ -90,6 +97,13 @@ struct ExpanderKeyConfig {
   uint8_t addr = 0x20;
   uint8_t bit = 0;
   bool active_high = true;
+};
+
+// Reset lines on a TCA9554 I/O expander, pulsed before the display and touch
+// start. Only the bits in `mask` change.
+struct ExpanderResetConfig {
+  uint8_t addr = 0x20;
+  uint8_t mask = 0;  // 0 = no expander resets
 };
 
 struct ButtonConfig {
@@ -119,6 +133,7 @@ struct BoardConfig {
   CodecAudioConfig codec;
   TouchConfig touch;
   ExpanderKeyConfig pwr_key;
+  ExpanderResetConfig expander_reset;
   bool axp2101 = false;
   bool axp_audio_supply = false;
   bool cores3 = false;
