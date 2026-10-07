@@ -6,6 +6,10 @@
 
 - Show a QR code on the Wi-Fi setup screen so a phone camera can join the gadget's temporary network without typing. The code encodes the network name and password with the standard `WIFI:` scheme. The instructions stay printed beside it, since the phone still opens the setup address and some phones cannot scan. Screens without room for a scannable code beside the instructions keep the text-only screen.
 
+### Firmware
+
+- Display transfers no longer race their own DMA: the AMOLED-1.75/1.75C/1.8 and T-Display-S3 drivers now use the same band-by-band flush as the SPI panels, so a late or failed transfer pauses or stops drawing instead of refilling a buffer the DMA is still reading. The CrowPanel RGB path reports a failed flush or backlight change once instead of rebooting, and a display that fails to start leaves the gadget running without a screen (USB console and Wi-Fi still work) instead of rebooting in a loop. A touch task that cannot start is reported as a failed input.
+
 ## 0.2.0
 
 ### Hardware and setup

@@ -115,7 +115,7 @@ bool ParallelDisplay::begin(const LcdConfig& cfg, int power_pin) {
   bus.bus_width = 8;
   for (int i = 0; i < 8; ++i) bus.data_gpio_nums[i] = static_cast<gpio_num_t>(cfg.bus.data[i]);
   bus.max_transfer_bytes = static_cast<size_t>(cfg.width) * bounce_rows_ * 2;
-  ESP_ERROR_CHECK(esp_lcd_new_i80_bus(&bus, &i80_));
+  if (!esp_ok(esp_lcd_new_i80_bus(&bus, &i80_), TAG, "esp_lcd_new_i80_bus")) return false;
   park_wr(cfg.bus.wr);
 
   esp_lcd_panel_io_i80_config_t io_cfg = {};
@@ -130,19 +130,19 @@ bool ParallelDisplay::begin(const LcdConfig& cfg, int power_pin) {
   io_cfg.dc_levels.dc_data_level = 1;
   io_cfg.on_color_trans_done = &ParallelDisplay::on_trans_done;
   io_cfg.user_ctx = this;
-  ESP_ERROR_CHECK(esp_lcd_new_panel_io_i80(i80_, &io_cfg, &io_));
+  if (!esp_ok(esp_lcd_new_panel_io_i80(i80_, &io_cfg, &io_), TAG, "esp_lcd_new_panel_io_i80")) return false;
 
   esp_lcd_panel_dev_config_t panel_cfg = {};
   panel_cfg.reset_gpio_num = static_cast<gpio_num_t>(cfg.rst);
   panel_cfg.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
   panel_cfg.bits_per_pixel = 16;
-  ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(io_, &panel_cfg, &panel_));
-  ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_));
-  ESP_ERROR_CHECK(esp_lcd_panel_init(panel_));
-  ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_, cfg.invert));
-  ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel_, cfg.swap_xy));
-  ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_, cfg.mirror_x, cfg.mirror_y));
-  ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_, cfg.gap_x, cfg.gap_y));
+  if (!esp_ok(esp_lcd_new_panel_st7789(io_, &panel_cfg, &panel_), TAG, "esp_lcd_new_panel_st7789")) return false;
+  if (!esp_ok(esp_lcd_panel_reset(panel_), TAG, "esp_lcd_panel_reset")) return false;
+  if (!esp_ok(esp_lcd_panel_init(panel_), TAG, "esp_lcd_panel_init")) return false;
+  if (!esp_ok(esp_lcd_panel_invert_color(panel_, cfg.invert), TAG, "esp_lcd_panel_invert_color")) return false;
+  if (!esp_ok(esp_lcd_panel_swap_xy(panel_, cfg.swap_xy), TAG, "esp_lcd_panel_swap_xy")) return false;
+  if (!esp_ok(esp_lcd_panel_mirror(panel_, cfg.mirror_x, cfg.mirror_y), TAG, "esp_lcd_panel_mirror")) return false;
+  if (!esp_ok(esp_lcd_panel_set_gap(panel_, cfg.gap_x, cfg.gap_y), TAG, "esp_lcd_panel_set_gap")) return false;
 
   // Match LilyGO's ST7789V setup: this panel needs its vendor power/gamma
   // registers after the generic esp_lcd reset/init sequence.
@@ -164,13 +164,22 @@ bool ParallelDisplay::begin(const LcdConfig& cfg, int power_pin) {
   };
   static constexpr uint8_t kVendorInitLen[] = {0, 1, 5, 1, 1, 1, 1, 1, 1, 1, 2, 1, 14, 14};
   for (size_t i = 0; i < std::size(kVendorInit); ++i) {
-    ESP_ERROR_CHECK(esp_lcd_panel_io_tx_param(io_, kVendorInit[i][0],
+    if (!esp_ok(esp_lcd_panel_io_tx_param(io_, kVendorInit[i][0],
                                              kVendorInitLen[i] ? &kVendorInit[i][1] : nullptr,
-                                             kVendorInitLen[i]));
+                                             kVendorInitLen[i]), TAG, "esp_lcd_panel_io_tx_param")) return false;
     if (i == 0) vTaskDelay(pdMS_TO_TICKS(120));  // sleep-out settling time from the panel spec
   }
-  ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_, true));
+  if (!esp_ok(esp_lcd_panel_disp_on_off(panel_, true), TAG, "esp_lcd_panel_disp_on_off")) return false;
 
+  // Each band's DMA transfer must finish before the bounce buffer is refilled.
+  bands_.emplace(
+      cfg.height, bounce_rows_, 100,
+      [this](int y, int rows) {
+        const int w = cfg_.width;
+        std::memcpy(bounce_, fb_ + static_cast<size_t>(y) * w, static_cast<size_t>(rows) * w * 2);
+        return esp_lcd_panel_draw_bitmap(panel_, 0, y, w, y + rows, bounce_) == ESP_OK;
+      },
+      [this](uint32_t ms) { return xSemaphoreTake(done_, pdMS_TO_TICKS(ms)) == pdTRUE; });
   if (cfg.backlight >= 0) set_backlight(100);
   ESP_LOGI(TAG, "ST7789 %ux%u ready on the i80 bus (gap %d,%d)", cfg.width, cfg.height, cfg.gap_x, cfg.gap_y);
   return true;
@@ -185,16 +194,7 @@ hg::DisplayInfo ParallelDisplay::info() const {
   return di;
 }
 
-void ParallelDisplay::flush(uint16_t y0, uint16_t y1) {
-  const int w = cfg_.width;
-  for (int y = y0; y < y1; y += bounce_rows_) {
-    int rows = std::min<int>(bounce_rows_, y1 - y);
-    std::memcpy(bounce_, fb_ + static_cast<size_t>(y) * w, static_cast<size_t>(rows) * w * 2);
-    esp_lcd_panel_draw_bitmap(panel_, 0, y, w, y + rows, bounce_);
-    // The bounce buffer is reused: wait until the transfer has finished.
-    xSemaphoreTake(done_, pdMS_TO_TICKS(100));
-  }
-}
+void ParallelDisplay::flush(uint16_t y0, uint16_t y1) { report_band_event(TAG, bands_->flush(y0, y1)); }
 
 void ParallelDisplay::set_backlight(uint8_t percent) {
   if (cfg_.backlight < 0) return;

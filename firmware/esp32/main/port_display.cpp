@@ -112,7 +112,7 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
     bus.flags = SPICOMMON_BUSFLAG_QUAD;
   }
   bus.max_transfer_sz = cfg.width * kBounceRows * 2;
-  ESP_ERROR_CHECK(spi_bus_initialize(kHost, &bus, SPI_DMA_CH_AUTO));
+  if (!esp_ok(spi_bus_initialize(kHost, &bus, SPI_DMA_CH_AUTO), TAG, "spi_bus_initialize")) return false;
 
   esp_lcd_panel_io_spi_config_t io_cfg = {};
   io_cfg.dc_gpio_num = static_cast<gpio_num_t>(cfg.dc);
@@ -143,7 +143,7 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
       return false;
     }
   }
-  ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(static_cast<esp_lcd_spi_bus_handle_t>(kHost), &io_cfg, &io_));
+  if (!esp_ok(esp_lcd_new_panel_io_spi(static_cast<esp_lcd_spi_bus_handle_t>(kHost), &io_cfg, &io_), TAG, "esp_lcd_new_panel_io_spi")) return false;
 
   esp_lcd_panel_dev_config_t panel_cfg = {};
   panel_cfg.reset_gpio_num = static_cast<gpio_num_t>(cfg.rst);
@@ -159,7 +159,7 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
     st_vendor.init_cmds_size = newer ? sizeof(kWs185PanelNew) / sizeof(kWs185PanelNew[0]) :
                                      sizeof(kWs185PanelDefault) / sizeof(kWs185PanelDefault[0]);
     panel_cfg.vendor_config = &st_vendor;
-    ESP_ERROR_CHECK(esp_lcd_new_panel_st77916(io_, &panel_cfg, &panel_));
+    if (!esp_ok(esp_lcd_new_panel_st77916(io_, &panel_cfg, &panel_), TAG, "esp_lcd_new_panel_st77916")) return false;
   } else if (ili9341) {
     if (cfg.controller == LcdController::Box3) {
       vendor.init_cmds = kBox3PanelInit;
@@ -170,17 +170,17 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
       vendor.init_cmds_size = sizeof(kCoreS3EPanelInit) / sizeof(kCoreS3EPanelInit[0]);
       panel_cfg.vendor_config = &vendor;
     }
-    ESP_ERROR_CHECK(esp_lcd_new_panel_ili9341(io_, &panel_cfg, &panel_));
+    if (!esp_ok(esp_lcd_new_panel_ili9341(io_, &panel_cfg, &panel_), TAG, "esp_lcd_new_panel_ili9341")) return false;
   } else {
-    ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(io_, &panel_cfg, &panel_));
+    if (!esp_ok(esp_lcd_new_panel_st7789(io_, &panel_cfg, &panel_), TAG, "esp_lcd_new_panel_st7789")) return false;
   }
-  ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_));
-  ESP_ERROR_CHECK(esp_lcd_panel_init(panel_));
-  ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_, cfg.invert));
-  ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel_, cfg.swap_xy));
-  ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_, cfg.mirror_x, cfg.mirror_y));
-  ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_, cfg.gap_x, cfg.gap_y));
-  ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_, true));
+  if (!esp_ok(esp_lcd_panel_reset(panel_), TAG, "esp_lcd_panel_reset")) return false;
+  if (!esp_ok(esp_lcd_panel_init(panel_), TAG, "esp_lcd_panel_init")) return false;
+  if (!esp_ok(esp_lcd_panel_invert_color(panel_, cfg.invert), TAG, "esp_lcd_panel_invert_color")) return false;
+  if (!esp_ok(esp_lcd_panel_swap_xy(panel_, cfg.swap_xy), TAG, "esp_lcd_panel_swap_xy")) return false;
+  if (!esp_ok(esp_lcd_panel_mirror(panel_, cfg.mirror_x, cfg.mirror_y), TAG, "esp_lcd_panel_mirror")) return false;
+  if (!esp_ok(esp_lcd_panel_set_gap(panel_, cfg.gap_x, cfg.gap_y), TAG, "esp_lcd_panel_set_gap")) return false;
+  if (!esp_ok(esp_lcd_panel_disp_on_off(panel_, true), TAG, "esp_lcd_panel_disp_on_off")) return false;
 
   if (cfg.backlight >= 0) {
     ledc_timer_config_t timer = {};
@@ -189,7 +189,7 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
     timer.timer_num = LEDC_TIMER_0;
     timer.freq_hz = 5000;
     timer.clk_cfg = LEDC_AUTO_CLK;
-    ESP_ERROR_CHECK(ledc_timer_config(&timer));
+    if (!esp_ok(ledc_timer_config(&timer), TAG, "ledc_timer_config")) return false;
     ledc_channel_config_t ch = {};
     ch.gpio_num = cfg.backlight;
     ch.speed_mode = LEDC_LOW_SPEED_MODE;
@@ -197,7 +197,7 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
     ch.timer_sel = LEDC_TIMER_0;
     ch.duty = 0;
     ch.flags.output_invert = cfg.backlight_invert;
-    ESP_ERROR_CHECK(ledc_channel_config(&ch));
+    if (!esp_ok(ledc_channel_config(&ch), TAG, "ledc_channel_config")) return false;
     set_backlight(100);
   }
   if (board_backlight) board_backlight(100);
@@ -215,21 +215,7 @@ hg::DisplayInfo SpiDisplay::info() const {
   return di;
 }
 
-void SpiDisplay::flush(uint16_t y0, uint16_t y1) {
-  switch (bands_->flush(y0, y1)) {
-    case hg::BandFlush::Event::TimedOut:
-      ESP_LOGE(TAG, "LCD transfer timed out; display paused until it completes");
-      break;
-    case hg::BandFlush::Event::Resumed:
-      ESP_LOGW(TAG, "late LCD transfer completed; display resumed");
-      break;
-    case hg::BandFlush::Event::Failed:
-      ESP_LOGE(TAG, "LCD transfer failed; display updates stopped until reboot");
-      break;
-    case hg::BandFlush::Event::None:
-      break;
-  }
-}
+void SpiDisplay::flush(uint16_t y0, uint16_t y1) { report_band_event(TAG, bands_->flush(y0, y1)); }
 
 void SpiDisplay::set_backlight(uint8_t percent) {
   if (board_backlight) { board_backlight(percent); return; }
