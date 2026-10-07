@@ -17,7 +17,7 @@
 
 ### Android
 
-- An experimental Android client in `android/` runs the device core on a phone through the NDK. It covers pairing, hold-to-talk on the touch screen, spoken replies and the face, with the screen on or off. It can also run as a dedicated device: as device owner it is the home screen, stays pinned and starts after a reboot. It is configured over adb or from its settings screen. CI builds the APK and drives the core through the app's JNI bridge. See [docs/android.md](docs/android.md).
+- An experimental Android client in `android/` runs the device core on a phone through the NDK. It covers pairing, hold-to-talk on the touch screen, spoken replies and the face, with the screen on or off. It can also run as a dedicated device: as device owner it is the home screen, stays pinned and starts after a reboot. It is configured over adb or from its settings screen, which can also open Android's developer options while the kiosk is locked and warns when a screen lock would stop the gadget from starting after a reboot. CI builds the APK and drives the core through the app's JNI bridge. See [docs/android.md](docs/android.md).
 
 ### Linux
 

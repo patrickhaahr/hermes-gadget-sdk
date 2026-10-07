@@ -8,7 +8,9 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.app.KeyguardManager
 import android.os.Build
+import android.provider.Settings
 
 /** The device-admin component that `dpm set-device-owner` names. */
 class AdminReceiver : DeviceAdminReceiver()
@@ -63,6 +65,26 @@ object Kiosk {
         dpm.setLockTaskPackages(admin, emptyArray())
         if (release) dpm.clearDeviceOwnerApp(activity.packageName)
     }
+
+    /**
+     * Opens Android's developer options (or its settings) on top of the kiosk, for
+     * turning wireless debugging back on. In lock task mode an app outside the
+     * allowlist can't open, so the settings app joins it until the face returns
+     * and [enter] narrows it again.
+     */
+    fun openSystemSettings(activity: Activity) {
+        val developer = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+        val intent = if (developer.resolveActivity(activity.packageManager) != null) developer else Intent(Settings.ACTION_SETTINGS)
+        val settings = intent.resolveActivity(activity.packageManager)?.packageName ?: return
+        if (isOwner(activity) && !isPaused(activity)) {
+            val dpm = activity.getSystemService(DevicePolicyManager::class.java)
+            dpm.setLockTaskPackages(ComponentName(activity, AdminReceiver::class.java), arrayOf(activity.packageName, settings))
+        }
+        activity.startActivity(intent)
+    }
+
+    /** A PIN, pattern or password: Android then asks for it after every reboot, which a mounted gadget can't answer. */
+    fun hasScreenLock(context: Context): Boolean = context.getSystemService(KeyguardManager::class.java).isDeviceSecure
 
     fun resume(activity: Activity) {
         prefs(activity).edit().putBoolean(PAUSED, false).apply()

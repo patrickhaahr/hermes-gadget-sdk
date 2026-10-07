@@ -84,6 +84,7 @@ class SetupActivity : Activity() {
         label(R.string.label_token)
         token = field(saved?.token, "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
         message = TextView(this).also(column::addView)
+        if (Kiosk.isOwner(this) && Kiosk.hasScreenLock(this)) message.setText(R.string.screen_lock_warning)
         button(R.string.action_save) {
             if (apply(GadgetConfig(server.text.toString().trim(), name.text.toString().trim(), token.text.toString()))) finish()
         }
@@ -92,6 +93,7 @@ class SetupActivity : Activity() {
             if (pm.isIgnoringBatteryOptimizations(packageName)) message.setText(R.string.battery_ok)
             else startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
         }
+        button(R.string.action_system_settings) { Kiosk.openSystemSettings(this) }
         if (Kiosk.isOwner(this)) {
             if (Kiosk.isPaused(this)) button(R.string.action_kiosk_resume) {
                 Kiosk.resume(this)
