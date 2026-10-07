@@ -122,6 +122,8 @@ The SDK reuses Hermes's DM pairing instead of inventing its own:
 
 The pairing code authorizes the chat in Hermes. The device key, enrolled on first contact and proven by HMAC afterwards, keeps another device from impersonating an approved one.
 
+Until Hermes approves a device, its record is *pending*: at most 16 devices may wait at once, at most 4 from one network address, and a pending record expires an hour after the device's last contact (it simply re-enrolls on its next connection). The hub refuses further strangers with an `error` of code `busy`. `hermes gadget devices` marks pending devices with "waiting to pair". `hermes gadget pair --yes` approves without asking only when exactly one device is waiting; with several, name one: `hermes gadget pair --yes <device>`.
+
 ### Confirmations
 
 Hermes asks before destructive commands (`/new`, `/undo`), costly model switches and dangerous shell commands. Chat platforms render those as buttons; the gadget renders them as a yes/no `prompt` (see [protocol.md](protocol.md#questions)):

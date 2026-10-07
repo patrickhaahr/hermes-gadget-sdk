@@ -5,6 +5,11 @@ never in the plugin install tree. Device keys are generated on the device and
 enrolled on first contact (trust on first use); later connections prove
 possession with an HMAC challenge, so the key crosses the network only once.
 
+A device that enrolls but is never paired is *pending*: its record expires
+after ``PENDING_TTL_S`` unless it reconnects, and is kept for good once Hermes
+approves it. That bounds what an unapproved stranger on the network can leave
+behind.
+
 The gateway keeps one store open for as long as it runs, while ``hermes gadget
 forget`` and ``pair`` edit the same file from another process. Every operation
 therefore re-reads the file before it looks or writes, and writes go through a
@@ -21,6 +26,14 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
+
+
+PENDING_TTL_S = 3600  # an unapproved device's record lives this long after its last contact
+
+
+def _expired(rec: dict[str, Any], now: float) -> bool:
+    until = rec.get("pending_until")
+    return isinstance(until, (int, float)) and until < now
 
 
 class DeviceStore:
@@ -47,7 +60,9 @@ class DeviceStore:
             raw = None
         if not isinstance(raw, dict):
             raw = {}
-        self._data["devices"] = dict(raw.get("devices") or {})
+        now = time.time()
+        devices = dict(raw.get("devices") or {})
+        self._data["devices"] = {k: v for k, v in devices.items() if not _expired(v, now)}
         self._data["pairing"] = dict(raw.get("pairing") or {})
 
     def _save(self) -> None:
@@ -73,7 +88,8 @@ class DeviceStore:
         except (KeyError, ValueError):
             return None
 
-    def enroll(self, device_id: str, key: bytes, *, name: str = "", board: str = "") -> None:
+    def enroll(self, device_id: str, key: bytes, *, name: str = "", board: str = "", address: str = "") -> None:
+        """Record a new device, pending until ``confirm`` says Hermes approved it."""
         now = time.time()
         with self._lock:
             self._load()
@@ -81,10 +97,27 @@ class DeviceStore:
                 "key": base64.b64encode(key).decode(),
                 "name": name,
                 "board": board,
+                "address": address,
                 "enrolled_at": now,
                 "last_seen": now,
+                "pending_until": now + PENDING_TTL_S,
             }
             self._save()
+
+    def confirm(self, device_id: str) -> None:
+        """Hermes approved the device: keep its record for good."""
+        with self._lock:
+            self._load()
+            rec = self._data["devices"].get(device_id)
+            if rec is not None and rec.pop("pending_until", None) is not None:
+                self._save()
+
+    def pending(self) -> dict[str, dict[str, Any]]:
+        """Devices enrolled but not yet approved (keys hidden)."""
+        with self._lock:
+            self._load()
+            return {k: {kk: vv for kk, vv in v.items() if kk != "key"}
+                    for k, v in self._data["devices"].items() if "pending_until" in v}
 
     def touch(self, device_id: str, *, name: str = "", board: str = "", firmware: str = "") -> None:
         with self._lock:
@@ -93,6 +126,8 @@ class DeviceStore:
             if rec is None:
                 return
             rec["last_seen"] = time.time()
+            if "pending_until" in rec:
+                rec["pending_until"] = rec["last_seen"] + PENDING_TTL_S
             if name:
                 rec["name"] = name
             if board:
@@ -111,9 +146,11 @@ class DeviceStore:
             return removed
 
     def devices(self) -> dict[str, dict[str, Any]]:
+        """Every known device (keys hidden), with ``pending`` for those Hermes hasn't approved."""
         with self._lock:
             self._load()
-            return {k: {kk: vv for kk, vv in v.items() if kk != "key"} for k, v in self._data["devices"].items()}
+            return {k: {**{kk: vv for kk, vv in v.items() if kk != "key"}, "pending": "pending_until" in v}
+                    for k, v in self._data["devices"].items()}
 
     # -- pairing codes ----------------------------------------------------------
 
