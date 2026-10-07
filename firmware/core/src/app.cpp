@@ -10,6 +10,14 @@
 namespace hg {
 namespace {
 
+// Milliseconds from `at` to `t`. tick() reads the clock once at its start, but
+// the work it does (a redraw, a connect) can stamp a later time on a field; that
+// counts as no time passed, rather than an unsigned wrap to about 49 days.
+uint32_t since(uint32_t t, uint32_t at) {
+  int32_t d = static_cast<int32_t>(t - at);
+  return d > 0 ? static_cast<uint32_t>(d) : 0;
+}
+
 constexpr uint32_t kBootScreenMs = 800;
 constexpr uint32_t kConnectTimeoutMs = 10000;
 constexpr uint32_t kHandshakeTimeoutMs = 10000;
@@ -1242,21 +1250,21 @@ void App::tick() {
 
   if (reconnect_pending_ && network_up_ && static_cast<int32_t>(t - reconnect_at_) >= 0) connect_now();
 
-  if (phase_ == Phase::Connecting && !reconnect_pending_ && t - phase_since_ > kConnectTimeoutMs) {
+  if (phase_ == Phase::Connecting && !reconnect_pending_ && since(t, phase_since_) > kConnectTimeoutMs) {
     hal_.transport->close();
     drop_session("connect timeout");
     update_model();
-  } else if (phase_ == Phase::Handshake && t - phase_since_ > kHandshakeTimeoutMs) {
+  } else if (phase_ == Phase::Handshake && since(t, phase_since_) > kHandshakeTimeoutMs) {
     hal_.transport->close();
     drop_session("handshake timeout");
     update_model();
-  } else if (phase_ == Phase::Online && t - last_rx_ > 3 * heartbeat_ms_) {
+  } else if (phase_ == Phase::Online && since(t, last_rx_) > 3 * heartbeat_ms_) {
     hal_.transport->close();
     drop_session("server silent");
     update_model();
   }
 
-  if (ota_busy() && t - ota_last_rx_ > kOtaIdleMs) {
+  if (ota_busy() && since(t, ota_last_rx_) > kOtaIdleMs) {
     ota_fail("timeout", "the update stalled");
     update_model();
   }
@@ -1266,19 +1274,19 @@ void App::tick() {
     update_model();
   }
 
-  if (mode_ == Mode::Listening && t - mode_since_ > kMaxUtteranceMs) {
+  if (mode_ == Mode::Listening && since(t, mode_since_) > kMaxUtteranceMs) {
     finish_listening();
     update_model();
   }
   if (!prompt_id_.empty()) last_turn_rx_ = t;  // Hermes is waiting for the user, not stuck
-  if (mode_ == Mode::Thinking && t - last_turn_rx_ > kThinkingTimeoutMs) {
+  if (mode_ == Mode::Thinking && since(t, last_turn_rx_) > kThinkingTimeoutMs) {
     mode_ = Mode::Idle;
     notice_ = "No reply from Hermes";
     notice_until_ = t + 8000;
     update_model();
   }
   if (mode_ == Mode::Responding && !speaking()) {
-    bool settled = turn_done_ || (reply_final_ && t - last_turn_rx_ > kSettleAfterReplyMs);
+    bool settled = turn_done_ || (reply_final_ && since(t, last_turn_rx_) > kSettleAfterReplyMs);
     if (settled) {
       mode_ = Mode::Idle;
       mode_since_ = t;
@@ -1300,7 +1308,7 @@ void App::tick() {
     update_model();
   }
   if (cancel_held_ && !talk_held_ && !settings_open() && !cancel_long_fired_ && !prompt_showing()) {
-    uint32_t held = t - cancel_down_at_;
+    uint32_t held = since(t, cancel_down_at_);
     if (held >= kNewSessionHoldMs) {
       cancel_long_fired_ = true;
       start_new_session();
@@ -1327,7 +1335,7 @@ void App::tick() {
 
   flush_sensors();
 
-  if (t - frame_at_ >= kFrameMs) {
+  if (since(t, frame_at_) >= kFrameMs) {
     frame_at_ = t;
     ++model_.frame;
     update_model();
