@@ -285,7 +285,7 @@ void Ui::draw_top(Canvas& c, const UiModel& m) {
     c.fill_circle(w / 2, 7 * s, r, dot);
     return;
   }
-  const int pad = 12 * s;  // horizontal padding so text clears the rounded corners
+  const int pad = 3 * s + panel_.corner_inset;
   int label_w = Canvas::text_width(label, s);
   int label_x = w - pad - label_w;
   c.text(label_x, ty, label, s, kDim);

@@ -203,7 +203,8 @@ extern "C" void app_main(void) {
                       : hal.display == &g_parallel ? "st7789-i80"
                       : hal.display == &g_amoled ? "co5300"
                                                 : "none";
-  parts.mic = hal.mic == &g_codec_mic ? "es7210" : hal.mic == &g_mic ? "i2s" : "none";
+  parts.mic = hal.mic == &g_codec_mic ? (board.codec.mic == hgp::MicCodec::Es8311 ? "es8311" : "es7210")
+              : hal.mic == &g_mic ? "i2s" : "none";
   parts.speaker = hal.speaker == &g_codec_speaker ?
       (board.codec.speaker == hgp::SpeakerCodec::Aw88298 ? "aw88298" : "es8311") :
       hal.speaker == &g_speaker ? "i2s" : "none";

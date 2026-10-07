@@ -49,6 +49,13 @@ https://components.espressif.com/components/waveshare/esp32_s3_touch_amoled_1_75
 released by Waveshare under the Apache License 2.0. A copy of that license is in
 LICENSES/Apache-2.0.txt.
 
+The CO5300 start-up commands for the rectangular 368x448 module (kInit368 in
+firmware/esp32/main/port_amoled.cpp) follow Waveshare's board support package
+for the ESP32-S3-Touch-AMOLED-1.8,
+https://github.com/waveshareteam/Waveshare-ESP32-components/tree/9f4030c6e5cb888ad4cc268bfa7584c93ad53e30/bsp/esp32_s3_touch_amoled_1_8,
+released by Waveshare under the Apache License 2.0. A copy of that license is in
+LICENSES/Apache-2.0.txt.
+
 The BOX-3 panel initialization register values in
 firmware/esp32/main/panel_box3.hpp follow Espressif's ESP32-S3-BOX-3 BSP,
 https://github.com/espressif/esp-bsp/tree/master/bsp/esp-box-3,
