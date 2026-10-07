@@ -288,13 +288,14 @@ void Ui::draw_top(Canvas& c, const UiModel& m) {
     c.fill_circle(w / 2, s + r, r, dot);
     return;
   }
+  const int pad = 3 * s + panel_.corner_inset;
   int label_w = Canvas::text_width(label, s);
-  int label_x = w - 3 * s - label_w;
+  int label_x = w - pad - label_w;
   c.text(label_x, ty, label, s, kDim);
   int r = std::max(2, 3 * s / 2 + 1);
   c.fill_circle(label_x - 3 * s - r, layout_.top_h / 2, r, dot);
-  int title_cols = cols_for(label_x - 6 * s - 2 * r - 3 * s, s);
-  c.text(3 * s, ty, fit(m.title, title_cols), s, kText);
+  int title_cols = cols_for(label_x - 6 * s - 2 * r - pad, s);
+  c.text(pad, ty, fit(m.title, title_cols), s, kText);
 }
 
 void Ui::draw_indicator(Canvas& c, const UiModel& m, int cx, int cy, int r) {

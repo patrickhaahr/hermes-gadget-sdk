@@ -21,7 +21,7 @@ bool tca9554_reset(i2c_master_bus_handle_t bus, const ExpanderResetConfig& reset
         const uint8_t data[] = {reg, value};
         return i2c_master_transmit(dev, data, sizeof(data), 50) == ESP_OK;
       },
-      [](uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); });
+      [](uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }, reset.hold_ms, reset.settle_ms);
   const bool ok = pulse.begin();
   i2c_master_bus_rm_device(dev);
   ESP_LOGI("hg.tca9554", "expander resets 0x%02x %s", reset.mask, ok ? "ready" : "failed");

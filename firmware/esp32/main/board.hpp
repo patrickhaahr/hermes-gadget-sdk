@@ -58,7 +58,12 @@ struct I2sSpeakerConfig {
   int bclk = -1, ws = -1, dout = -1;
 };
 
-// QSPI AMOLED with a CO5300 controller (round 466x466 panels).
+// Which vendor bring-up table a CO5300 panel needs. The round 466x466 1.75"
+// modules write extra page-2 registers; the rectangular 368x448 1.8" module uses
+// the shorter table from Waveshare's board support package.
+enum class AmoledPanel { Co5300_466, Co5300_368 };
+
+// QSPI AMOLED with a CO5300 controller (round 466x466 or rectangular 368x448).
 struct AmoledConfig {
   bool enabled = false;
   uint16_t width = 466, height = 466;
@@ -66,6 +71,8 @@ struct AmoledConfig {
   int gap_x = 0, gap_y = 0;  // the controller's RAM is wider than the glass
   int qspi_mhz = 40;
   bool round = false;
+  uint8_t corner_inset = 0;  // extra top-bar padding for rounded corners (hg::DisplayInfo)
+  AmoledPanel panel = AmoledPanel::Co5300_466;
 };
 
 struct I2cBusConfig {
@@ -73,9 +80,13 @@ struct I2cBusConfig {
   uint32_t hz = 400000;
 };
 
-// ES8311/AW88298 (speaker) and ES7210 (microphone ADC) sharing one duplex I2S bus,
+// ES8311/AW88298 (speaker) and the microphone ADC sharing one duplex I2S bus,
 // controlled over the I2C bus.
 enum class SpeakerCodec { Es8311, Aw88298 };
+
+// The microphone ADC: an ES7210 for MEMS microphones, or the ES8311's own ADC
+// when the board wires an analog microphone to the speaker codec.
+enum class MicCodec { Es7210, Es8311 };
 
 struct CodecAudioConfig {
   bool enabled = false;
@@ -84,6 +95,7 @@ struct CodecAudioConfig {
   float amp_supply_v = 5.0f;  // amplifier supply; the ES8311 driver sets its output level from it
   float mic_gain_db = 24.0f;
   SpeakerCodec speaker = SpeakerCodec::Es8311;
+  MicCodec mic = MicCodec::Es7210;
   bool stereo32 = false;      // two 32-bit I2S slots per frame instead of one 16-bit slot
   bool rmnm_mics = false;     // the ES7210 sends four 16-bit channels R M N M; average the M slots (ws185.hpp)
   bool speaker_pa = false;    // CodecSpeaker drives `pa`, not esp_codec_dev (see CodecAudio::begin)
@@ -100,6 +112,7 @@ struct TouchConfig {
   int rst = -1;
   uint16_t width = 0, height = 0;
   bool mirror_x = false, mirror_y = false;
+  int16_t offset_y = 0;  // subtracted from y when the UI starts below the panel's first row
   TouchController controller = TouchController::Cst9217;
 };
 
@@ -119,6 +132,7 @@ struct ExpanderKeyConfig {
 struct ExpanderResetConfig {
   uint8_t addr = 0x20;
   uint8_t mask = 0;  // 0 = no expander resets
+  uint16_t hold_ms = 10, settle_ms = 50;  // low pulse, then the wait before the display starts
 };
 
 struct ButtonConfig {

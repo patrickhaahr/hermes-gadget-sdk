@@ -89,7 +89,10 @@ bool CodecAudio::begin(const CodecAudioConfig& cfg, i2c_master_bus_handle_t bus)
   es8311_codec_cfg_t dac = {};
   dac.ctrl_if = audio_codec_new_i2c_ctrl(&dac_i2c);
   dac.gpio_if = gpio_if;
-  dac.codec_mode = ESP_CODEC_DEV_WORK_MODE_DAC;
+  // The ES8311 has an ADC too. A board that wires an analog microphone to it
+  // uses one codec handle for both directions instead of an ES7210.
+  const bool shared = cfg.mic == MicCodec::Es8311 && cfg.speaker == SpeakerCodec::Es8311;
+  dac.codec_mode = shared ? ESP_CODEC_DEV_WORK_MODE_BOTH : ESP_CODEC_DEV_WORK_MODE_DAC;
   // With pa_pin, esp_codec_dev turns the amplifier on in esp_codec_dev_open()
   // and leaves it on; muting only writes a DAC register. speaker_pa boards
   // keep it off while idle and drop it as soon as playback is aborted.
@@ -100,7 +103,7 @@ bool CodecAudio::begin(const CodecAudioConfig& cfg, i2c_master_bus_handle_t bus)
   dac.hw_gain.pa_voltage = cfg.amp_supply_v;
   dac.hw_gain.codec_dac_voltage = 3.3;
   esp_codec_dev_cfg_t out_cfg = {};
-  out_cfg.dev_type = ESP_CODEC_DEV_TYPE_OUT;
+  out_cfg.dev_type = shared ? ESP_CODEC_DEV_TYPE_IN_OUT : ESP_CODEC_DEV_TYPE_OUT;
   if (cfg.speaker == SpeakerCodec::Aw88298) {
     aw88298_codec_cfg_t amp = {};
     amp.ctrl_if = dac.ctrl_if;
@@ -113,18 +116,20 @@ bool CodecAudio::begin(const CodecAudioConfig& cfg, i2c_master_bus_handle_t bus)
   out_cfg.data_if = data_if;
   out_ = out_cfg.codec_if ? esp_codec_dev_new(&out_cfg) : nullptr;
 
-  audio_codec_i2c_cfg_t adc_i2c = {};
-  adc_i2c.port = I2C_NUM_0;
-  adc_i2c.addr = ES7210_CODEC_DEFAULT_ADDR;
-  adc_i2c.bus_handle = bus;
-  es7210_codec_cfg_t adc = {};
-  adc.ctrl_if = audio_codec_new_i2c_ctrl(&adc_i2c);
-  adc.mic_selected = cfg.es7210_mics;
-  esp_codec_dev_cfg_t in_cfg = {};
-  in_cfg.dev_type = ESP_CODEC_DEV_TYPE_IN;
-  in_cfg.codec_if = es7210_codec_new(&adc);
-  in_cfg.data_if = data_if;
-  in_ = in_cfg.codec_if ? esp_codec_dev_new(&in_cfg) : nullptr;
+  if (!shared) {
+    audio_codec_i2c_cfg_t adc_i2c = {};
+    adc_i2c.port = I2C_NUM_0;
+    adc_i2c.addr = ES7210_CODEC_DEFAULT_ADDR;
+    adc_i2c.bus_handle = bus;
+    es7210_codec_cfg_t adc = {};
+    adc.ctrl_if = audio_codec_new_i2c_ctrl(&adc_i2c);
+    adc.mic_selected = cfg.es7210_mics;
+    esp_codec_dev_cfg_t in_cfg = {};
+    in_cfg.dev_type = ESP_CODEC_DEV_TYPE_IN;
+    in_cfg.codec_if = es7210_codec_new(&adc);
+    in_cfg.data_if = data_if;
+    in_ = in_cfg.codec_if ? esp_codec_dev_new(&in_cfg) : nullptr;
+  }
 
   // Both stay open at one rate: they share the I2S clocks.
   esp_codec_dev_sample_info_t fs = {};
@@ -132,13 +137,15 @@ bool CodecAudio::begin(const CodecAudioConfig& cfg, i2c_master_bus_handle_t bus)
   fs.channel = cfg.stereo32 ? 2 : 1;
   fs.bits_per_sample = cfg.stereo32 ? 32 : 16;
   if (out_ && esp_codec_dev_open(out_, &fs) != ESP_CODEC_DEV_OK) out_ = nullptr;
-  if (in_ && esp_codec_dev_open(in_, &fs) != ESP_CODEC_DEV_OK) in_ = nullptr;
+  if (shared) in_ = out_;  // one handle, opened once
+  else if (in_ && esp_codec_dev_open(in_, &fs) != ESP_CODEC_DEV_OK) in_ = nullptr;
   if (out_) {
     esp_codec_dev_set_out_vol(out_, 70);
     esp_codec_dev_set_out_mute(out_, true);  // unmuted while something plays
   }
   if (in_) esp_codec_dev_set_in_gain(in_, cfg.mic_gain_db);
-  ESP_LOGI(TAG, "codecs: speaker %s, microphones %s", out_ ? "ready" : "missing", in_ ? "ready" : "missing");
+  ESP_LOGI(TAG, "codecs: speaker %s, microphones %s (%s)", out_ ? "ready" : "missing", in_ ? "ready" : "missing",
+           shared ? "es8311 analog" : "es7210");
   return out_ || in_;
 }
 

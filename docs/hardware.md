@@ -296,6 +296,48 @@ This port is written from Waveshare's published pinout and drivers. On the first
 6. **Microphone:** say something; the waves move with your voice, and Hermes's transcript is right.
 7. **Speaker:** replies are clear and loud enough (`set volume 80`); no hiss between replies.
 
+## ESP32-S3-Touch-AMOLED-1.8
+
+Board option `esp32s3-touch-amoled-18`, for Waveshare's rectangular 1.8" board, V2 only (CO5300 display, CST820 touch): an ESP32-S3R8 (8 MB octal PSRAM) with 16 MB flash, a 368×448 AMOLED, one analog microphone, a speaker output and a battery. Nothing needs wiring; plug a small 8 Ω speaker into the **SPK** connector to hear replies.
+
+The V1 board uses a different panel and touch controller, and this image doesn't support it. The 1.75" models also need their own profile: different pins, a round panel and different codecs.
+
+| Part | Chip | Connection |
+|---|---|---|
+| Display | CO5300, QSPI | CS 12, SCLK 11, D0–D3 4/5/6/7; reset through the TCA9554 (LCD_RST); column offset 16 |
+| Touch | CST820 | I2C 0x15, read with the CST816 report format; reset through the TCA9554 (TOUCH_RST); INT 21 unused (polled) |
+| Speaker DAC + microphone ADC | ES8311 | I2C 0x18; I2S MCLK 16, BCLK 9, WS 45, DOUT 8, DIN 10; amplifier enable 46 |
+| Microphone | ES8311 analog input | One analog electret microphone into the ES8311's own ADC (not an ES7210) |
+| Power | AXP2101 | I2C 0x34; battery/USB readings and local power-off; charging and rails keep their defaults |
+| Reset expander | TCA9554 | I2C 0x20; drives LCD_RST (P0), the display power rail (P1) and TOUCH_RST (P2) |
+| I2C bus | | SDA 15, SCL 14, 400 kHz |
+| BOOT key | | GPIO 0 |
+
+The display and touch controllers are held in reset by the TCA9554, not by direct GPIOs. Before the display starts, the firmware pulls P0–P2 low for 20 ms, releases them and waits 150 ms; the other expander pins keep their state.
+
+**Controls.** Hold the screen to talk, tap to answer "yes", swipe down to cancel; hold BOOT to talk as well.
+
+**Build and flash it** with PlatformIO:
+
+```bash
+cd firmware/esp32
+pio run -e esp32s3-touch-amoled-18 -t upload -t monitor
+```
+
+The USB-C port is the S3's own USB Serial/JTAG, used for both flashing and the serial console.
+
+### First flash: what to check
+
+A smoke test on a V2 board confirmed the boot, the display and the I2C devices, and the codec, touch, speaker and microphone tasks started; touch, microphone capture, speaker playback and battery are untested (see [hardware validation](hardware-validation.md)). On the first flash, check:
+
+1. **Boot log:** `CO5300 368x448 ready`, `expander resets 0x07 ready`, `codecs: speaker ready, microphones ready (es8311 analog)` and `touch ready, key off, encoder off`. The `hg.diag` lines should read `parts: display co5300, microphone es8311, speaker es8311, touch yes, key no`. In the `diag` report, `i2c` should include `0x15` (CST820), `0x18` (ES8311), `0x20` (TCA9554) and `0x34` (AXP2101). There is no ES7210 on this board.
+2. **Screen:** the mascot is upright and not mirrored, and the colours are right (amber accents, not blue); a stripe at one edge means the column offset is off. If the image is shifted or the panel stays dark, the vendor init table is the first thing to revisit.
+3. **Touch:** holding the screen shows the listening waves and a swipe *down* cancels. If the coordinates are mirrored, flip `touch.mirror_x`/`mirror_y` in `board.cpp`.
+4. **Microphone:** say something; the waves move with your voice and Hermes's transcript is right. The ES8311 analog input path is the part most likely to need its gain adjusted.
+5. **Speaker:** replies are clear and loud enough (`set volume 80`); no hiss between replies.
+
+The CO5300 start-up table comes from Waveshare's [board support package](https://github.com/waveshareteam/Waveshare-ESP32-components/tree/9f4030c6e5cb888ad4cc268bfa7584c93ad53e30/bsp/esp32_s3_touch_amoled_1_8) at commit `9f4030c`; see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
+
 ## Elecrow CrowPanel 2.1-inch HMI
 
 Board option `crowpanel-21`, for Elecrow's 2.1" round rotary display: an ESP32-S3R8 (8 MB octal PSRAM) with 16 MB flash, a 480×480 round ST7701 panel on a 16-bit RGB bus, a CST-family capacitive touchscreen, a rotary encoder with a push button, and a PCF8574 I/O expander for panel power, resets and the encoder button. **This board has no microphone or speaker**, so it works as a text gadget: Hermes replies, cards and prompts appear on the screen and typed messages go out through the USB console.

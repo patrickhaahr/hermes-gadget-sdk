@@ -199,6 +199,7 @@ void TouchInput::task(void* arg) {
   for (;;) {
     TouchSample s{};
     if (self->has_touch() && self->read_touch(s)) {
+      s.y = static_cast<int16_t>(s.y - self->touch_.offset_y);
       fault.valid();
       // Every sample while the finger is down (gestures need the motion), plus the lift.
       if (s.touching || was_touching) {
