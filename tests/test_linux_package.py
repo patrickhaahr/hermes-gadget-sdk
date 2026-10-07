@@ -37,6 +37,9 @@ def test_package_has_matching_binary_checksums_licenses_and_service(tmp_path, mo
     assert b"[Paho MQTT]" in files["THIRD_PARTY_NOTICES.md"]
     assert b"Apache License" in files["LICENSES/Apache-2.0.txt"]
     assert b"User=hermes-gadget" in files["hermes-gadget.service"]
+    assert b"StartLimitBurst=5" in files["hermes-gadget.service"]
+    assert b"rollback" in files["hermes-gadget-device"]
+    assert b"hermes-gadget-device status" in files["install.sh"], "the installer checks the new release answers"
     for line in files["SHA256SUMS"].decode().splitlines():
         digest, name = line.split("  ", 1)
         assert hashlib.sha256(files[name]).hexdigest() == digest

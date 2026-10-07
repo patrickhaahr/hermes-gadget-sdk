@@ -1,5 +1,11 @@
 #!/bin/sh
 # Install a verified release without replacing device state or configuration.
+#
+# A release is installed into its own directory, then `current` is switched to
+# it. If the service was running, it is started on the new release and must
+# answer `hermes-gadget-device status` within a short time; otherwise `current`
+# goes back to the previous release and the service restarts on that. Older
+# releases beyond the newest three are removed, except the previous one.
 set -eu
 umask 022
 
@@ -23,17 +29,28 @@ if not re.fullmatch(r"hermes_gadget-[0-9.]+-py3-none-any.whl", p["wheel"]):
 '
 release_id=$(python3 -c 'import json; print(json.load(open("package.json"))["release_id"])')
 wheel=$(python3 -c 'import json; print(json.load(open("package.json"))["wheel"])')
-destination=/opt/hermes-gadget/releases/$release_id
-install -d -m 755 /opt/hermes-gadget/releases
+releases=/opt/hermes-gadget/releases
+destination=$releases/$release_id
+health_timeout=${HERMES_GADGET_HEALTH_TIMEOUT:-30}
+keep_releases=3
+install -d -m 755 "$releases"
 exec 9>/opt/hermes-gadget/install.lock
 flock -n 9 || { echo 'Another installer is running.' >&2; exit 1; }
 
 if [ ! -f "$destination/.installed" ]; then
-    if [ -e "$destination" ]; then
-        echo "An incomplete installation exists at $destination. Move it aside and retry." >&2
-        exit 1
-    fi
+    # A directory without the marker is a failed earlier attempt: start over.
+    rm -rf "$destination"
     install -d -m 755 "$destination"
+    # Anything that fails before the marker leaves no half-built release behind.
+    discard_unfinished() {
+        status=$?
+        if [ ! -f "$destination/.installed" ]; then
+            rm -rf "$destination"
+            echo "Installation of $release_id failed and was removed; fix the cause and run the installer again." >&2
+        fi
+        exit "$status"
+    }
+    trap discard_unfinished EXIT
     install -m 644 libhgsim.so "$destination/libhgsim.so"
     install -m 644 package.json "$destination/package.json"
     install -d -m 755 "$destination/licenses"
@@ -44,6 +61,7 @@ if [ ! -f "$destination/.installed" ]; then
     HGSIM_LIBRARY="$destination/libhgsim.so" "$destination/venv/bin/python" -c \
         'from hermes_gadget.sim.native import load_library; load_library()'
     touch "$destination/.installed"
+    trap - EXIT
 fi
 cmp package.json "$destination/package.json"
 HGSIM_LIBRARY="$destination/libhgsim.so" "$destination/venv/bin/python" -c \
@@ -71,6 +89,7 @@ if systemctl is-active --quiet hermes-gadget.service; then
     was_active=true
     systemctl stop hermes-gadget.service
 fi
+previous=
 if [ -L /opt/hermes-gadget/current ]; then
     previous=$(readlink -f /opt/hermes-gadget/current)
     if [ "$previous" != "$destination" ]; then
@@ -85,6 +104,37 @@ install -m 755 "$source_dir/hermes-gadget-device" /usr/local/bin/hermes-gadget-d
 systemctl daemon-reload
 if [ "$was_active" = true ]; then
     systemctl start hermes-gadget.service
+    # The new release must come up and answer on its control socket.
+    waited=0
+    until hermes-gadget-device status >/dev/null 2>&1; do
+        if [ "$waited" -ge "$health_timeout" ]; then
+            echo "The service did not answer within ${health_timeout}s on $release_id." >&2
+            if [ -n "$previous" ] && [ "$previous" != "$destination" ]; then
+                ln -sfn "$previous" /opt/hermes-gadget/current.new
+                mv -Tf /opt/hermes-gadget/current.new /opt/hermes-gadget/current
+                systemctl restart hermes-gadget.service
+                echo "Went back to $(basename "$previous"). See: journalctl -u hermes-gadget -n 50" >&2
+            else
+                echo 'There is no previous release to go back to. See: journalctl -u hermes-gadget -n 50' >&2
+            fi
+            exit 1
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
 fi
+
+# Keep the newest releases plus whatever current and previous point at.
+current_target=$(readlink -f /opt/hermes-gadget/current)
+previous_target=$(readlink -f /opt/hermes-gadget/previous 2>/dev/null || true)
+find "$releases" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p
+' | sort -rn | cut -d' ' -f2- |
+    tail -n +$((keep_releases + 1)) | while read -r path; do
+    if [ "$path" != "$current_target" ] && [ "$path" != "$previous_target" ]; then
+        rm -rf "$path"
+        echo "Removed old release $(basename "$path")."
+    fi
+done
+
 echo "Installed $release_id. Configuration and device identity were preserved."
 echo 'Edit /etc/hermes-gadget/config.json, then run: sudo systemctl enable --now hermes-gadget'

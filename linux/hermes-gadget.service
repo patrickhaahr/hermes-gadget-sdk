@@ -2,6 +2,9 @@
 Description=Hermes Gadget device
 Wants=network-online.target
 After=network-online.target
+# A release that crashes at startup is retried a few times, then left for a person.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple

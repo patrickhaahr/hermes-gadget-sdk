@@ -1,9 +1,31 @@
 #!/bin/sh
 # Control the installed system device as its dedicated service account.
+# `rollback` is the one command handled here: it swaps the current and previous
+# releases and restarts the service, which only root can do.
 set -eu
 if [ "$(id -u)" -ne 0 ]; then
     echo 'Use sudo hermes-gadget-device to control the system gadget.' >&2
     exit 1
+fi
+if [ "${1:-}" = rollback ]; then
+    if [ ! -L /opt/hermes-gadget/previous ]; then
+        echo 'There is no previous release to go back to.' >&2
+        exit 1
+    fi
+    current=$(readlink -f /opt/hermes-gadget/current)
+    previous=$(readlink -f /opt/hermes-gadget/previous)
+    if [ "$current" = "$previous" ]; then
+        echo "Already on $(basename "$current")." >&2
+        exit 1
+    fi
+    ln -sfn "$previous" /opt/hermes-gadget/current.new
+    mv -Tf /opt/hermes-gadget/current.new /opt/hermes-gadget/current
+    ln -sfn "$current" /opt/hermes-gadget/previous
+    if systemctl is-active --quiet hermes-gadget.service; then
+        systemctl restart hermes-gadget.service
+    fi
+    echo "Now on $(basename "$previous"); $(basename "$current") is the previous release."
+    exit 0
 fi
 export HGSIM_LIBRARY=/opt/hermes-gadget/current/libhgsim.so
 exec runuser -u hermes-gadget -- /opt/hermes-gadget/current/venv/bin/hermes-gadget \
