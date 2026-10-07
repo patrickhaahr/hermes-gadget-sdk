@@ -79,14 +79,24 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
   const size_t px = static_cast<size_t>(cfg.width) * cfg.height;
   fb_ = static_cast<uint16_t*>(heap_caps_malloc(px * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!fb_) fb_ = static_cast<uint16_t*>(heap_caps_malloc(px * 2, MALLOC_CAP_8BIT));
-  bounce_rows_ = kBounceRows;
-  bounce_ = static_cast<uint16_t*>(heap_caps_malloc(static_cast<size_t>(cfg.width) * bounce_rows_ * 2, MALLOC_CAP_DMA));
+  bounce_ = static_cast<uint16_t*>(heap_caps_malloc(static_cast<size_t>(cfg.width) * kBounceRows * 2, MALLOC_CAP_DMA));
   if (!fb_ || !bounce_) {
     ESP_LOGE(TAG, "not enough memory for a %ux%u framebuffer", cfg.width, cfg.height);
     return false;
   }
   std::memset(fb_, 0, px * 2);
   done_ = xSemaphoreCreateBinary();
+  // A band takes about 2.6 ms on a 320-px panel at 40 MHz. Allow ten times the
+  // band at the configured clock, and never less than 100 ms.
+  const uint32_t band_ms = static_cast<uint32_t>(cfg.width) * kBounceRows * 16 / (std::max(1, cfg.spi_mhz) * 1000u) + 1;
+  bands_.emplace(
+      cfg.height, kBounceRows, std::max<uint32_t>(100, 10 * band_ms),
+      [this](int y, int rows) {
+        const int w = cfg_.width;
+        std::memcpy(bounce_, fb_ + static_cast<size_t>(y) * w, static_cast<size_t>(rows) * w * 2);
+        return esp_lcd_panel_draw_bitmap(panel_, 0, y, w, y + rows, bounce_) == ESP_OK;
+      },
+      [this](uint32_t ms) { return xSemaphoreTake(done_, pdMS_TO_TICKS(ms)) == pdTRUE; });
 
   spi_bus_config_t bus = {};
   bus.mosi_io_num = cfg.mosi;
@@ -100,7 +110,7 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
     bus.data3_io_num = cfg.d3;
     bus.flags = SPICOMMON_BUSFLAG_QUAD;
   }
-  bus.max_transfer_sz = cfg.width * bounce_rows_ * 2;
+  bus.max_transfer_sz = cfg.width * kBounceRows * 2;
   ESP_ERROR_CHECK(spi_bus_initialize(kHost, &bus, SPI_DMA_CH_AUTO));
 
   esp_lcd_panel_io_spi_config_t io_cfg = {};
@@ -205,24 +215,18 @@ hg::DisplayInfo SpiDisplay::info() const {
 }
 
 void SpiDisplay::flush(uint16_t y0, uint16_t y1) {
-  if (transfer_failed_) return;
-  const int w = cfg_.width;
-  for (int y = y0; y < y1; y += bounce_rows_) {
-    int rows = std::min<int>(bounce_rows_, y1 - y);
-    std::memcpy(bounce_, fb_ + static_cast<size_t>(y) * w, static_cast<size_t>(rows) * w * 2);
-    const esp_err_t drawn = esp_lcd_panel_draw_bitmap(panel_, 0, y, w, y + rows, bounce_);
-    // The bounce buffer is reused: wait until the DMA transfer has finished.
-    if (cfg_.controller != LcdController::St77916) {
-      xSemaphoreTake(done_, pdMS_TO_TICKS(100));
-      continue;
-    }
-    // ST77916: after an error or a missed completion the QSPI DMA may still own
-    // bounce_, so stop drawing rather than overwrite it. A reboot recovers.
-    if (drawn != ESP_OK || xSemaphoreTake(done_, pdMS_TO_TICKS(250)) != pdTRUE) {
-      transfer_failed_ = true;
-      ESP_LOGE(TAG, "ST77916 transfer failed; display updates stopped until reboot");
-      return;
-    }
+  switch (bands_->flush(y0, y1)) {
+    case hg::BandFlush::Event::TimedOut:
+      ESP_LOGE(TAG, "LCD transfer timed out; display paused until it completes");
+      break;
+    case hg::BandFlush::Event::Resumed:
+      ESP_LOGW(TAG, "late LCD transfer completed; display resumed");
+      break;
+    case hg::BandFlush::Event::Failed:
+      ESP_LOGE(TAG, "LCD transfer failed; display updates stopped until reboot");
+      break;
+    case hg::BandFlush::Event::None:
+      break;
   }
 }
 
