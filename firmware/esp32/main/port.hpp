@@ -416,6 +416,8 @@ class Wifi {
   void tick(hg::App& app, uint32_t now);
   std::string start_setup();
   void stop_setup();
+  // The temporary network's credentials, for the setup screen's QR code.
+  hg::WifiSetupAp setup_ap();
   void provision(const hg::WifiCredentials& credentials);
 
  private:

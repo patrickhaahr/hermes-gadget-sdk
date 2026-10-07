@@ -56,7 +56,7 @@ For a custom build, follow [Build and flash](hardware.md#build-and-flash). For U
 
 Phone setup configures a board that already runs the firmware. A board without a saved Wi-Fi network opens setup automatically at startup. To change an existing connection, open [device settings](using-gadget.md#device-settings-and-hardware-checks) and select **Wi-Fi setup**.
 
-1. Join the `Hermes-XXXX` network shown on the gadget. Enter its temporary password, also shown on the screen. Each setup session gets a new password.
+1. Join the `Hermes-XXXX` network shown on the gadget. Enter its temporary password, also shown on the screen. Each setup session gets a new password. Where the screen has room, it also shows a QR code: point your phone's camera at it to join the network without typing, then continue with the next step.
 2. Keep this network selected if your phone warns that it has no internet. Open `http://192.168.4.1` in the phone's browser.
 3. Enter your 2.4 GHz network name, its password, and the device URL from `hermes gadget info`. Leave the password empty only for an open network.
 4. Choose **Check connection and save**. The board allows up to 30 seconds to connect. If your phone disconnects during the check, rejoin the gadget's network and reload the page.

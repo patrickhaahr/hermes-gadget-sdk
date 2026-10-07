@@ -256,6 +256,7 @@ extern "C" void app_main(void) {
   };
   app.on_wifi_setup = [] { return g_wifi.start_setup(); };
   app.on_wifi_setup_close = [] { g_wifi.stop_setup(); };
+  app.on_wifi_setup_ap = [] { return g_wifi.setup_ap(); };
   app.on_diag = [](hg::json::Value& report) {
     hgp::diag::report(report);
     report.set("ota", g_updater.describe());
