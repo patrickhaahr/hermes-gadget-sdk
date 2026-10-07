@@ -22,6 +22,8 @@ namespace {
 #define HG_BOARD_NAME "waveshare-esp32-s3-touch-lcd-1.85c-v2"
 #elif CONFIG_HG_BOARD_T_DISPLAY_S3
 #define HG_BOARD_NAME "tdisplay-s3"
+#elif CONFIG_HG_BOARD_CROWPANEL_21
+#define HG_BOARD_NAME "crowpanel-2.1"
 #elif CONFIG_HG_BOARD_WS_ESP32S3_LCD_154
 #define HG_BOARD_NAME "waveshare-esp32s3-lcd-154"
 #else
@@ -279,6 +281,50 @@ BoardConfig make() {
   b.buttons = {0, 14, -1, -1};
   b.talk_label = "BOOT";
   b.cancel_label = "B2";
+  return b;
+}
+#elif CONFIG_HG_BOARD_CROWPANEL_21
+// Elecrow CrowPanel 2.1-inch HMI; pin map from Elecrow's official Arduino demo.
+BoardConfig make() {
+  BoardConfig b{};
+  b.name = kBoardName;
+  b.lcd.enabled = true;
+  b.lcd.width = 480;
+  b.lcd.height = 480;
+  b.lcd.round = true;
+  b.lcd.swap_xy = false;
+  b.lcd.mirror_x = false;
+  b.lcd.mirror_y = false;
+  b.lcd.backlight = 6;
+  // Vendor sketch drives GPIO6 PWM active-high (ledcWrite 204/255 = bright).
+  b.lcd.backlight_invert = false;
+  b.lcd.bus.type = LcdBus::Type::Rgb;
+  b.lcd.rgb.de = 40;
+  b.lcd.rgb.vsync = 7;
+  b.lcd.rgb.hsync = 15;
+  b.lcd.rgb.pclk = 41;
+  const int rgb_data[16] = {46, 3, 8, 18, 17, 14, 13, 12, 11, 10, 9, 5, 45, 48, 47, 21};
+  for (int i = 0; i < 16; ++i) b.lcd.rgb.data[i] = rgb_data[i];
+  b.lcd.rgb.cmd_cs = 16;
+  b.lcd.rgb.cmd_sclk = 2;
+  b.lcd.rgb.cmd_sda = 1;
+  b.lcd.rgb.i2c_expander = 0x21;
+  b.lcd.rgb.pclk_hz = 12000000;
+  b.i2c = {38, 39, 400000};
+  b.touch.enabled = true;
+  b.touch.controller = TouchController::Cst816;  // its CST826 sends the same report
+  b.touch.addr = 0x15;
+  b.touch.width = 480;
+  b.touch.height = 480;
+  b.pwr_key.enabled = true;
+  b.pwr_key.addr = 0x21;
+  b.pwr_key.bit = 5;
+  b.pwr_key.active_high = false;
+  b.pwr_key.pcf8574 = true;  // the knob's push button is PCF8574 P5
+  b.encoder = {42, 4};
+  b.buttons = {-1, -1, -1, -1};
+  b.talk_label = "BOOT";
+  b.cancel_label = "Knob";
   return b;
 }
 #elif CONFIG_HG_BOARD_CUSTOM
