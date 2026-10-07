@@ -17,6 +17,7 @@
 
 #include "board.hpp"
 #include "axp2101.hpp"
+#include "band_flush.hpp"
 #include "cores3.hpp"
 #include "speaker_pa.hpp"
 #include "driver/i2c_master.h"
@@ -132,9 +133,8 @@ class SpiDisplay final : public hg::Display {
   esp_lcd_panel_handle_t panel_ = nullptr;
   uint16_t* fb_ = nullptr;
   uint16_t* bounce_ = nullptr;  // DMA-capable staging rows
-  int bounce_rows_ = 0;
   SemaphoreHandle_t done_ = nullptr;
-  bool transfer_failed_ = false;  // ST77916 only: see flush()
+  std::optional<hg::BandFlush> bands_;
 };
 
 // I2S MEMS microphone: a reader task posts 20 ms PCM16 chunks while capturing.
