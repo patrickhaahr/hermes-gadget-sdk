@@ -33,7 +33,13 @@ TEST("AXP2101: battery, USB and charging readings never alter power configuratio
   CHECK(writes.empty());
 
   regs[0xa4] = 255;
-  CHECK(!power.read()->battery_percent);
+  CHECK_EQ(power.read()->battery_percent, uint8_t(77));  // junk gauge falls back to the voltage curve (4000 mV -> 77)
+  regs[0xa4] = 0;
+  p = power.read();
+  CHECK_EQ(p->battery_percent, uint8_t(77));  // gauge stuck at 0: honest percent from voltage, no false "low battery"
+  regs[0x34] = 0x0d;  // 3549 mV -> 27% on the 3300..4200 map
+  regs[0x35] = 0xdd;
+  CHECK_EQ(power.read()->battery_percent, uint8_t(27));
   regs[0x00] = 0x20;
   p = power.read();
   CHECK(p->battery_present == false);
@@ -48,6 +54,11 @@ TEST("AXP2101: battery, USB and charging readings never alter power configuratio
   CHECK(writes.empty());
   failed_reg = 0x00;
   CHECK(!power.read());
+  regs[0x00] = 0x28;
+  regs[0x18] = 0x0a;
+  regs[0x30] = 0x03;
+  failed_reg = 0xa4;
+  CHECK(!power.read());  // a gauge the bus can't read is unavailable, not estimated from voltage
   failed_reg = 0x10;
   CHECK(!power.power_off());
   CHECK(writes.empty());
