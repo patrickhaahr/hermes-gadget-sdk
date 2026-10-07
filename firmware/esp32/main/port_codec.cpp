@@ -10,6 +10,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/task.h"
+#include "speaker_queue.hpp"
 #include "ws185.hpp"
 
 namespace hgp {
@@ -232,7 +233,9 @@ bool CodecSpeaker::begin(uint32_t sample_rate) {
 void CodecSpeaker::write(const int16_t* samples, size_t count) {
   if (!open_) return;
   size_t bytes = count * sizeof(int16_t);
-  size_t sent = xStreamBufferSend(buffer_, samples, bytes, 0);
+  // The app task is the only writer, so the room can only grow before the send.
+  size_t fit = hg::whole_sample_bytes(bytes, xStreamBufferSpacesAvailable(buffer_));
+  size_t sent = xStreamBufferSend(buffer_, samples, fit, 0);
   if (sent < bytes) ESP_LOGW(TAG, "playback buffer full, dropped %u bytes", static_cast<unsigned>(bytes - sent));
 }
 
