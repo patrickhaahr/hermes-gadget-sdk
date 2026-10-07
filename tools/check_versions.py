@@ -4,7 +4,7 @@
 The firmware, the Python package and the Hermes plugin ship together under one version:
 
     python tools/check_versions.py               # all files agree
-    python tools/check_versions.py --tag v0.2.0  # and match the tag being released
+    python tools/check_versions.py --tag v0.2.0  # and match the tag being released, with a CHANGELOG section
 """
 
 from __future__ import annotations
@@ -34,7 +34,13 @@ def versions(repo: Path = REPO) -> dict[str, str | None]:
     return found
 
 
-def problems(found: dict[str, str | None], tag: str | None = None) -> list[str]:
+def changelog_has(version: str, repo: Path = REPO) -> bool:
+    """Whether CHANGELOG.md has a "## <version>" section."""
+    text = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
+    return re.search(rf"(?m)^## {re.escape(version)}\s*$", text) is not None
+
+
+def problems(found: dict[str, str | None], tag: str | None = None, *, changelog: bool = True) -> list[str]:
     errors = [f"{rel}: no version found" for rel, version in found.items() if version is None]
     if len({version for version in found.values() if version}) > 1:
         errors.append("the versions differ: " + ", ".join(f"{rel} {version}" for rel, version in found.items()))
@@ -43,6 +49,8 @@ def problems(found: dict[str, str | None], tag: str | None = None) -> list[str]:
         wrong = [f"{rel} {version}" for rel, version in found.items() if version and version != wanted]
         if wrong:
             errors.append(f"the tag {tag} doesn't match " + ", ".join(wrong))
+        if not changelog:
+            errors.append(f"CHANGELOG.md has no '## {wanted}' section; move the Unreleased entries under one")
     return errors
 
 
@@ -53,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     found = versions(args.repo)
-    errors = problems(found, args.tag)
+    errors = problems(found, args.tag, changelog=changelog_has(args.tag.removeprefix("v"), args.repo) if args.tag else True)
     if errors:
         for error in errors:
             print(f"check_versions: {error}", file=sys.stderr)

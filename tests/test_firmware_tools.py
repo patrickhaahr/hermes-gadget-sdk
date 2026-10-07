@@ -284,6 +284,21 @@ def test_release_notes_pin_the_plugin_to_the_release_commit(project, tmp_path):
             in notes.read_text(encoding="utf-8"))
 
 
+def test_release_notes_open_with_the_changelog_section(project, tmp_path):
+    project("breadboard", version="0.2.0")
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "# Changelog\n\n## Unreleased\n\n- Not yet.\n\n## 0.2.0\n\n### Firmware\n\n- Fixed the thing.\n\n## 0.1.0\n\n- Older.\n",
+        encoding="utf-8")
+    notes = tmp_path / "notes.md"
+    assert _package(project, "--all", "--out", str(tmp_path / "dist"), "--notes", str(notes),
+                    "--changelog", str(changelog)) == 0
+    text = notes.read_text(encoding="utf-8")
+    assert text.startswith("Hermes Gadget firmware 0.2.0.\n\n### Firmware\n\n- Fixed the thing.\n")
+    assert "Not yet" not in text and "Older" not in text
+    assert package_release.changelog_section(changelog.read_text(encoding="utf-8"), "9.9.9") == ""
+
+
 def test_release_refuses_what_it_cannot_vouch_for(project, tmp_path, capsys):
     project("one", version="0.2.0")
     project("two", version="0.3.0")

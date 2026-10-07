@@ -26,6 +26,7 @@
 
 ### Tools and documentation
 
+- CI pins every action to a commit and PlatformIO to a version, gives every job a timeout, and checks that each pull request adds a changelog line (or carries the `no-changelog` label). A release now requires successful CI and Hermes runs on the tagged commit and a `CHANGELOG.md` section for the version, which opens the release notes. The security policy covers `linux/`.
 - The Linux guide names the real approval command, `hermes gadget pair`. A test now checks that every `hermes gadget` and `hermes-gadget` command in the guides exists in the CLIs.
 
 ## 0.2.0
