@@ -20,6 +20,7 @@ idf_component_register(
         "port_events.cpp"
         "port_ota.cpp"
         "port_parallel.cpp"
+        "port_rgb.cpp"
         "port_power.cpp"
         "port_latch_power.cpp"
         "../../drivers/axp2101.cpp"
@@ -44,6 +45,8 @@ idf_component_register(
         esp_adc
         esp_event
         esp_lcd
+        esp_lcd_st7701
+        esp_lcd_panel_io_additions
         esp_netif
         esp_http_server
         esp_psram

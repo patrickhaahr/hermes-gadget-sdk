@@ -9,13 +9,25 @@
 
 namespace hgp {
 
-// How an I80 panel is wired: eight data lines and a write strobe.
+// How a parallel panel is wired. An I80 panel uses eight data lines and a write
+// strobe here; an RGB panel is wired in LcdConfig::rgb.
 struct LcdBus {
-  enum class Type : uint8_t { Spi, I80 };
+  enum class Type : uint8_t { Spi, I80, Rgb };
   Type type = Type::Spi;
   int data[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
   int wr = -1;
   int pclk_mhz = 16;
+};
+
+// A 16-bit RGB panel that is scanned out continuously. Its controller takes the
+// init commands over a separate 3-wire SPI, and a PCF8574 switches its power
+// and reset lines (the CrowPanel 2.1).
+struct RgbPanelConfig {
+  int de = -1, vsync = -1, hsync = -1, pclk = -1;
+  int data[16] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+  int cmd_cs = -1, cmd_sclk = -1, cmd_sda = -1;
+  int i2c_expander = -1;  // PCF8574 address
+  uint32_t pclk_hz = 12000000;
 };
 
 enum class LcdController { St7789, Box3, CoreS3, St77916 };
@@ -28,6 +40,7 @@ struct LcdConfig {
   int mosi = -1, sclk = -1, cs = -1, dc = -1, rst = -1, backlight = -1;
   int spi_mhz = 40;
   LcdBus bus{};
+  RgbPanelConfig rgb{};
   LcdController controller = LcdController::St7789;
   bool reset_active_high = false;
   bool backlight_invert = false;  // active-low GPIO backlight, independent of pixel inversion
@@ -103,13 +116,15 @@ struct TouchConfig {
   TouchController controller = TouchController::Cst9217;
 };
 
-// A key whose level is read from a TCA9554 I/O expander input (e.g. a PMIC's
-// power key). Acts as CANCEL: a press cancels, holding 2 s starts a new session.
+// A key whose level is read from a TCA9554 or PCF8574 I/O expander input (e.g.
+// a PMIC's power key). Acts as CANCEL: a press cancels, holding 2 s starts a
+// new session.
 struct ExpanderKeyConfig {
   bool enabled = false;
   uint8_t addr = 0x20;
   uint8_t bit = 0;
   bool active_high = true;
+  bool pcf8574 = false;  // a PCF8574 has no registers: read its port directly
 };
 
 // Reset lines on a TCA9554 I/O expander, pulsed before the display and touch
@@ -122,6 +137,11 @@ struct ExpanderResetConfig {
 
 struct ButtonConfig {
   int talk = -1, cancel = -1, up = -1, down = -1;  // active-low GPIOs, -1 = absent
+};
+
+// A quadrature rotary encoder on two GPIOs. Each detent is an Up or Down press.
+struct EncoderConfig {
+  int a = -1, b = -1;  // -1 = absent
 };
 
 // A battery behind a resistive divider, with a latch that keeps it powered.
@@ -142,6 +162,7 @@ struct BoardConfig {
   I2sMicConfig mic;
   I2sSpeakerConfig speaker;
   ButtonConfig buttons;
+  EncoderConfig encoder;
   AmoledConfig amoled;
   I2cBusConfig i2c;
   CodecAudioConfig codec;
