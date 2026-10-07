@@ -137,12 +137,14 @@ class GadgetService : Service() {
                     else -> "network"
                 }
                 if (detail != lastNetwork) {
+                    Log.i(TAG, "network: $detail")
                     lastNetwork = detail
                     GadgetRuntime.core?.network(true, detail)
                 }
             }
 
             override fun onLost(network: Network) {
+                Log.i(TAG, "network lost")
                 lastNetwork = null
                 GadgetRuntime.core?.network(false, "")
             }

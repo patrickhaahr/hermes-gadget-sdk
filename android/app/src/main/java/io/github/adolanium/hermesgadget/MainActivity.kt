@@ -25,7 +25,12 @@ class MainActivity : Activity() {
         face = FaceView(this)
         setContentView(face)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        window.insetsController?.apply {
+    }
+
+    // Dialogs such as Android's "unblock microphone" bring the system bars back.
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) window.insetsController?.apply {
             hide(WindowInsets.Type.systemBars())
             systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
