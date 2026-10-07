@@ -8,6 +8,7 @@
 #include "hg/app.hpp"
 #include "hg/crypto.hpp"
 #include "hg/protocol.hpp"
+#include "hg/qr.hpp"
 #include "hg/setup.hpp"
 #include "hg/touch.hpp"
 
@@ -1329,6 +1330,74 @@ TEST("Wi-Fi setup: private instructions stay out of diagnostics and prompts clos
   CHECK(!r.app.wifi_setup_open());
   CHECK(r.app.screen() == hg::Screen::Prompt);
   CHECK(!r.app.start_wifi_setup());
+}
+
+TEST("Wi-Fi setup: the screen carries a scannable code for the temporary network") {
+  Rig r(Rig::touch_profile());
+  r.bring_online(true);
+  r.app.on_wifi_setup = [] { return "Network: Hermes-test\nPassword: private-setup-key"; };
+  r.app.on_wifi_setup_ap = [] {
+    hg::WifiSetupAp ap;
+    ap.ssid = "Hermes-test";
+    ap.password = "private-setup-key";
+    ap.url = "http://192.168.4.1";
+    return ap;
+  };
+  CHECK(r.app.start_wifi_setup());
+  CHECK(r.app.screen() == hg::Screen::Setup);
+  const hg::qr::Code* code = r.app.model().qr;
+  CHECK(code != nullptr && code->ok());
+  // The code encodes exactly the credentials the screen prints.
+  if (code) {
+    CHECK_EQ(code->size, hg::qr::encode(hg::qr::payload("Hermes-test", "private-setup-key")).size);
+  }
+  // The credentials still reach neither diagnostics nor status.
+  CHECK(r.app.console("diag").find("private-setup-key") == std::string::npos);
+  CHECK(r.app.status_json().find("private-setup-key") == std::string::npos);
+  // Closing the screen drops the code.
+  r.app.close_wifi_setup();
+  CHECK(r.app.model().qr == nullptr);
+}
+
+TEST("Wi-Fi setup: a port without credentials still shows the text screen") {
+  Rig r(Rig::touch_profile());
+  r.bring_online(true);
+  r.app.on_wifi_setup = [] { return "Temporary setup network"; };
+  // No on_wifi_setup_ap: the text screen must still work, just without a code.
+  CHECK(r.app.start_wifi_setup());
+  CHECK(r.app.screen() == hg::Screen::Setup);
+  CHECK(r.app.model().qr == nullptr);
+  CHECK(r.app.model().body.find("Temporary setup network") != std::string::npos);
+}
+
+TEST("Wi-Fi setup: the code is drawn inside the content band, dark on light") {
+  Rig r(Rig::touch_profile());
+  r.fake.make_round(466);
+  r.bring_online(true);
+  r.app.on_wifi_setup = [] { return "Network: Hermes-test\nPassword: private-setup-key"; };
+  r.app.on_wifi_setup_ap = [] {
+    hg::WifiSetupAp ap;
+    ap.ssid = "Hermes-test";
+    ap.password = "private-setup-key";
+    return ap;
+  };
+  CHECK(r.app.start_wifi_setup());
+  r.advance(200);
+  const hg::qr::Code* code = r.app.model().qr;
+  CHECK(code != nullptr);
+  if (!code) return;
+  // The code is drawn: count pure-black and pure-white pixels. The renderer
+  // draws modules as black on a white panel, which a camera needs.
+  int black = 0, white = 0;
+  for (int y = 0; y < 466; ++y) {
+    for (int x = 0; x < 466; ++x) {
+      uint16_t p = r.fake.fb[static_cast<size_t>(y * 466 + x)];
+      if (p == 0x0000) ++black;
+      if (p == 0xFFFF) ++white;
+    }
+  }
+  CHECK(black > 100);        // the modules
+  CHECK(white > black / 2);  // the panel and quiet zone around them
 }
 
 TEST("Wi-Fi setup: opening from USB releases an active talk button") {

@@ -109,3 +109,16 @@ The adapter uses ESP-IDF GPIO and panel APIs, bounds brightness to 16 levels,
 protects pulse timing, and uses explicit microsecond delays for backlight reset
 and startup. The panel command lengths are stored separately from their values.
 The full upstream license is in LICENSES/LilyGO-MIT.txt.
+
+The QR code encoder in firmware/core/third_party/qrcode/ is vendored from
+Richard Moore's QRCode library, https://github.com/ricmoo/QRCode,
+revision eafbde494979abc2445c363cc2602230bcbe299c,
+Copyright (c) 2017 Richard Moore and Copyright (c) 2017 Project Nayuki,
+MIT License. Major parts derive from Project Nayuki's QR Code generator,
+https://www.nayuki.io/page/qr-code-generator-library. The vendored copy is
+adapted for this project: the C99 variable-length arrays are replaced with
+fixed, bounded buffers so MSVC accepts the file; the "#pragma mark" lines are
+replaced with comments; an always-false comparison is removed; and two bounds
+checks are added (the bit writer no longer writes past its buffer, and a payload
+that overflows the chosen version is rejected instead of encoded incorrectly).
+The full upstream license is in LICENSES/QRCode-MIT.txt.

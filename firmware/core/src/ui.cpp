@@ -203,7 +203,9 @@ void Ui::render(const UiModel& m) {
                   .val(m.screen == Screen::Listening ? m.level : uint8_t(0))
                   .val(m.speaking)
                   .get();
-  hashes[2] = Hash().val(m.screen).add(m.detail).add(m.body).add(m.code).val(m.scroll).val(m.color_test).get();
+  hashes[2] = Hash().val(m.screen).add(m.detail).add(m.body).add(m.code).val(m.scroll).val(m.color_test)
+                  .val(m.qr ? m.qr->size : 0)
+                  .get();
   hashes[3] = Hash().add(m.hint).get();
 
   if (m.hero) {
@@ -420,6 +422,11 @@ void Ui::draw_content(Canvas& c, const UiModel& m) {
     return;
   }
 
+  if (m.qr && m.qr->ok()) {
+    draw_qr(c, m, y0, y1);
+    return;
+  }
+
   if (m.screen == Screen::Boot) {
     int big = s + 2;
     const char* name = "HERMES";
@@ -462,6 +469,62 @@ void Ui::draw_content(Canvas& c, const UiModel& m) {
     int thumb_y = track_y + (track_h - thumb_h) * first / std::max(1, max_first);
     c.fill_rect(w - 2 * s, track_y, s, track_h, kFaint);
     c.fill_rect(w - 2 * s, thumb_y, s, thumb_h, kDim);
+  }
+}
+
+// A Wi-Fi setup code: a white panel with a four-module quiet zone, one square
+// per module, at the largest integer scale that fits the content band. A phone
+// camera needs the quiet zone and dark-on-light contrast, so neither is optional.
+void Ui::draw_qr(Canvas& c, const UiModel& m, int y0, int y1) {
+  if (!m.qr) return;
+  const int n = m.qr->size;
+  if (n <= 0) return;
+  const int w = info_.width;
+  const int s = layout_.scale;
+  const int lh = Canvas::line_height(s);
+  const int margin = 4 * s;
+  const int pad = 4;                     // quiet zone, in modules
+  const int cells = n + 2 * pad;         // the code plus its quiet zone
+  const int avail_h = y1 - y0 - 2 * margin;
+  const int max_scale = std::min((w - 2 * margin) / cells, avail_h / cells);
+
+  // The code is the shortcut; the printed credentials are the fallback for a
+  // phone that cannot scan, so keep the SSID and password visible when there is
+  // room. Text never shrinks the code below kMinScale: a code that small is not
+  // reliably scannable, and the text alone then carries the details.
+  constexpr int kMinScale = 3;
+  constexpr int kMaxTextRows = 3;
+  const std::vector<std::string> lines = wrap_text(m.body, layout_.body_cols);
+  int text_rows = std::min(static_cast<int>(lines.size()), kMaxTextRows);
+  int scale = max_scale;
+  for (; text_rows > 0; --text_rows) {
+    const int reserve = text_rows * lh + 2 * s;
+    scale = std::min((w - 2 * margin) / cells, (avail_h - reserve) / cells);
+    if (scale >= kMinScale) break;
+  }
+  if (text_rows == 0) scale = max_scale;
+  if (scale < 2) {
+    // No room for a scannable code: fall back to the credentials as text.
+    c.text(margin, y0 + margin, "Screen too small for a code", s, kDim);
+    return;
+  }
+
+  const int side = cells * scale;
+  const int x0 = (w - side) / 2;
+  const int block = side + (text_rows ? text_rows * lh + 2 * s : 0);
+  const int py0 = y0 + margin + std::max(0, (avail_h - block) / 2);
+  c.fill_rect(x0, py0, side, side, rgb565(255, 255, 255));
+  for (int y = 0; y < n; ++y) {
+    for (int x = 0; x < n; ++x) {
+      if (m.qr->at(x, y)) {
+        c.fill_rect(x0 + (x + pad) * scale, py0 + (y + pad) * scale, scale, scale, rgb565(0, 0, 0));
+      }
+    }
+  }
+  int ty = py0 + side + 2 * s;
+  for (int i = 0; i < text_rows; ++i) {
+    c.text((w - Canvas::text_width(lines[static_cast<size_t>(i)], s)) / 2, ty, lines[static_cast<size_t>(i)], s, kDim);
+    ty += lh;
   }
 }
 

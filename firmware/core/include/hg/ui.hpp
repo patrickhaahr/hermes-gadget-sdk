@@ -13,6 +13,7 @@
 #include "hg/canvas.hpp"
 #include "hg/hal.hpp"
 #include "hg/mascot.hpp"
+#include "hg/qr.hpp"
 
 namespace hg {
 
@@ -58,6 +59,10 @@ struct UiModel {
   // instead of the header + text layout.
   bool hero = false;
   uint8_t caption_lines = 1;  // hero: lines the detail may wrap to (then "..")
+  // Wi-Fi setup: a scannable code for the temporary network, drawn centred in
+  // the content band. Null on every other screen. Borrowed, not owned: the app
+  // keeps the matrix so it is encoded once, not on every model update.
+  const qr::Code* qr = nullptr;
 };
 
 struct UiLayout {
@@ -95,6 +100,7 @@ class Ui {
   void draw_top(Canvas& c, const UiModel& m);
   void draw_header(Canvas& c, const UiModel& m);
   void draw_content(Canvas& c, const UiModel& m);
+  void draw_qr(Canvas& c, const UiModel& m, int y0, int y1);
   void draw_bottom(Canvas& c, const UiModel& m);
   void draw_indicator(Canvas& c, const UiModel& m, int cx, int cy, int r);
   struct HeroGeom {
