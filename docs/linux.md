@@ -15,11 +15,10 @@ your network and SSH access there, then boot the Pi with a suitable power supply
 The Linux client uses the OS network settings.
 
 Download the `hermes-gadget-VERSION-linux-arm64.tar.gz` archive and its `.sha256`
-file from a [release](https://github.com/Adolanium/hermes-gadget-sdk/releases) that
-includes the Pi package. Until the first such release is tagged, the same files
-are available in the `linux-arm64` artifact of a successful `main`
-[CI run](https://github.com/Adolanium/hermes-gadget-sdk/actions/workflows/ci.yml).
-Extract the artifact ZIP first if downloading from CI.
+file from a [release](https://github.com/Adolanium/hermes-gadget-sdk/releases).
+To try unreleased changes, the same files are in the `linux-arm64` artifact of a
+successful `main` [CI run](https://github.com/Adolanium/hermes-gadget-sdk/actions/workflows/ci.yml);
+extract the artifact ZIP first.
 
 In a directory containing just the chosen archive and checksum file:
 
@@ -44,7 +43,7 @@ sudo systemctl enable --now hermes-gadget
 sudo hermes-gadget-device status
 ```
 
-Approve the pairing code on the Hermes host with `hermes gadget approve CODE`.
+Approve the pairing code on the Hermes host with `hermes gadget pair`.
 Then use the installed device:
 
 ```bash
@@ -99,8 +98,8 @@ In another terminal with the environment activated:
 hermes-gadget linux status
 ```
 
-Approve the reported pairing code with `hermes gadget approve CODE` on your
-Hermes host. Then send a message and read the response:
+Approve the reported pairing code with `hermes gadget pair` on your Hermes
+host. Then send a message and read the response:
 
 ```bash
 hermes-gadget linux send "Hello from the kitchen"
@@ -205,6 +204,8 @@ to 4 in that case. Verify the header controller with `gpioinfo` before wiring.
 See [GPIO Zero's pin documentation](https://gpiozero.readthedocs.io/en/stable/api_pins.html)
 for the lgpio backend and permissions.
 
+To expose an existing lamp and temperature sensor instead of wired pins, use the [Home Assistant and MQTT examples](home-automation.md). They register named actions before pairing and perform network work outside the device loop.
+
 ## Add a screen
 
 Add `display` to the configuration to show the firmware's device screen:
@@ -258,8 +259,6 @@ devices. Software rendering and touch mapping pass automated tests; monitor,
 touch-controller and direct-console behavior still need physical verification.
 
 ## State and recovery
-
-To expose an existing lamp and temperature sensor through this Linux client, use the [Home Assistant and MQTT examples](home-automation.md). They register named actions before pairing and perform network work outside the device loop.
 
 The default state directory is `$XDG_STATE_HOME/hermes-gadget`, or
 `~/.local/state/hermes-gadget`. To use another directory, put
