@@ -31,7 +31,8 @@ std::optional<PowerStatus> Axp2101::read() {
       // initialized on this board) must not read as an empty battery when the
       // voltage says otherwise; derive percent from the voltage instead.
       uint8_t percent = 0;
-      const bool gauge_valid = read_(0xa4, &percent, 1) && percent >= 1 && percent <= 100;
+      if (!read_(0xa4, &percent, 1)) return std::nullopt;  // a failed read is unavailable, not an estimate
+      const bool gauge_valid = percent >= 1 && percent <= 100;
       if (gauge_valid)
         out.battery_percent = percent;
       else if (out.battery_mv)

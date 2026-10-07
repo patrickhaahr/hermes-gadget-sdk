@@ -54,6 +54,11 @@ TEST("AXP2101: battery, USB and charging readings never alter power configuratio
   CHECK(writes.empty());
   failed_reg = 0x00;
   CHECK(!power.read());
+  regs[0x00] = 0x28;
+  regs[0x18] = 0x0a;
+  regs[0x30] = 0x03;
+  failed_reg = 0xa4;
+  CHECK(!power.read());  // a gauge the bus can't read is unavailable, not estimated from voltage
   failed_reg = 0x10;
   CHECK(!power.power_off());
   CHECK(writes.empty());
