@@ -1,8 +1,10 @@
 # Elecrow CrowPanel 2.1-inch HMI; ESP32-S3R8, 16 MB flash, 8 MB octal PSRAM.
 # 480x480 RGB ST7701 display. No onboard audio hardware.
 CONFIG_IDF_TARGET="esp32s3"
+# The base file selects 4 MB; this board overrides it (check_config.py requires the
+# base choice be turned off explicitly).
+# CONFIG_ESPTOOLPY_FLASHSIZE_4MB is not set
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
-CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y

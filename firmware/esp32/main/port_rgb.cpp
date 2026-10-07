@@ -9,6 +9,7 @@
 #include "driver/i2c_master.h"
 #include "driver/ledc.h"
 #include "esp_heap_caps.h"
+#include "esp_idf_version.h"
 #include "esp_lcd_panel_io_additions.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
@@ -108,13 +109,20 @@ bool RgbDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
   esp_lcd_rgb_panel_config_t rgb_cfg = {};
   rgb_cfg.clk_src = LCD_CLK_SRC_PLL160M;
   rgb_cfg.data_width = 16;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+  // IDF 6 replaced the bpp/alignment fields with explicit color formats; the
+  // PSRAM alignment is now handled by the driver.
+  rgb_cfg.in_color_format = LCD_COLOR_FMT_RGB565;
+  rgb_cfg.out_color_format = LCD_COLOR_FMT_RGB565;
+#else
   rgb_cfg.bits_per_pixel = 16;
   rgb_cfg.psram_trans_align = 64;
-  rgb_cfg.de_gpio_num = cfg.rgb.de;
-  rgb_cfg.vsync_gpio_num = cfg.rgb.vsync;
-  rgb_cfg.hsync_gpio_num = cfg.rgb.hsync;
-  rgb_cfg.pclk_gpio_num = cfg.rgb.pclk;
-  for (int i = 0; i < 16; ++i) rgb_cfg.data_gpio_nums[i] = cfg.rgb.data[i];
+#endif
+  rgb_cfg.de_gpio_num = static_cast<gpio_num_t>(cfg.rgb.de);
+  rgb_cfg.vsync_gpio_num = static_cast<gpio_num_t>(cfg.rgb.vsync);
+  rgb_cfg.hsync_gpio_num = static_cast<gpio_num_t>(cfg.rgb.hsync);
+  rgb_cfg.pclk_gpio_num = static_cast<gpio_num_t>(cfg.rgb.pclk);
+  for (int i = 0; i < 16; ++i) rgb_cfg.data_gpio_nums[i] = static_cast<gpio_num_t>(cfg.rgb.data[i]);
   rgb_cfg.timings.pclk_hz = cfg.rgb.pclk_hz;
   rgb_cfg.timings.h_res = cfg.width;
   rgb_cfg.timings.v_res = cfg.height;

@@ -60,6 +60,11 @@ def test_crowpanel_profile_uses_vendor_rgb_pins_and_expander():
     assert "heap_caps_malloc(" in rgb_driver and "MALLOC_CAP_SPIRAM" in rgb_driver
     assert "esp_lcd_panel_draw_bitmap(panel_, 0, y0, cfg_.width, y1, packed)" in rgb_driver
     assert "esp_lcd_rgb_panel_get_frame_buffer(panel_, 1, &scanout_fb)" in rgb_driver
+    # RGB panel config must build on both the IDF 5.x and 6.x field sets.
+    assert "ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)" in rgb_driver
+    assert "rgb_cfg.in_color_format = LCD_COLOR_FMT_RGB565" in rgb_driver
+    assert "rgb_cfg.out_color_format = LCD_COLOR_FMT_RGB565" in rgb_driver
+    assert "static_cast<gpio_num_t>(cfg.rgb.de)" in rgb_driver
     assert "vendor.init_cmds = kCrowPanelInitCommands" in rgb_driver
     touch_driver = (ROOT / "firmware/esp32/main/port_touch.cpp").read_text()
     assert "TouchInput::read_touch" in touch_driver
