@@ -35,10 +35,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           path: hermes-gadget-sdk
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           repository: NousResearch/hermes-agent
           ref: ${{ github.event_name == 'schedule' && 'main' || inputs.hermes_ref || env.HERMES_REF }}
@@ -46,7 +46,7 @@ jobs:
       - name: Show the Hermes commit under test
         working-directory: hermes-agent
         run: git log -1 --format='Hermes Agent %H (%cs) %s'
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
         with:
           enable-cache: true
           cache-dependency-glob: hermes-agent/uv.lock

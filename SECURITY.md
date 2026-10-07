@@ -14,7 +14,7 @@ The latest release and `main` get fixes. Older releases don't; update the plugin
 
 ## Scope
 
-In scope: the Hermes plugin (`plugin/`), the device firmware (`firmware/`), the `hermes-gadget` tools (`python/`), the browser installer (`site/`) and the release tooling.
+In scope: the Hermes plugin (`plugin/`), the device firmware (`firmware/`), the `hermes-gadget` tools (`python/`), the Raspberry Pi client, installer and service unit (`linux/`), the browser installer (`site/`) and the release tooling.
 
 ## How the pieces trust each other
 

@@ -31,7 +31,9 @@ The Python jobs in `.github/workflows/ci.yml` run under `xvfb-run` so the deskto
 
 CI runs the adapter and gateway suites in `.github/workflows/hermes.yml`: against the Hermes commit pinned there (`HERMES_REF`) on every push and pull request, and against Hermes `main` once a day. To move the pin, run that workflow by hand with `hermes_ref: main`. When it passes, put the commit it printed into `HERMES_REF` and into `TESTED_HERMES_COMMIT` in `plugin/compat.py`; a test checks that the two agree.
 
-The Linux jobs run on `ubuntu-24.04` rather than `ubuntu-latest`, so a new runner image arrives as a deliberate change instead of a surprise. Dependabot proposes the workflows' actions, the installer's npm packages and the Python dependencies weekly, a week after each release.
+The Linux jobs run on `ubuntu-24.04` rather than `ubuntu-latest`, so a new runner image arrives as a deliberate change instead of a surprise. Every action is pinned to a commit, with the release tag in a comment, and PlatformIO to a version, so a job runs the same code until a change says otherwise. Every job has a timeout. Dependabot proposes the workflows' actions (updating the pinned commits), the installer's npm packages and the Python dependencies weekly, a week after each release.
+
+A pull request also needs a line in `CHANGELOG.md` under `## Unreleased`, checked by the `Changelog entry` job. Label the PR `no-changelog` when nothing user-facing changed (internal refactors, test-only fixes, dependency bumps).
 
 The end-to-end test runs a real gateway with the plugin installed and a fake OpenAI-compatible server (`tests/fakes/fake_openai.py`) standing in for the model, STT and TTS. It then:
 
@@ -107,9 +109,9 @@ It also writes `SHA256SUMS` and `manifest.json`, which tells the browser install
 
 To publish a release:
 
-1. Set the new version in all four files that carry it: `PROJECT_VER` in `firmware/esp32/CMakeLists.txt`, `pyproject.toml`, `python/hermes_gadget/__init__.py` and `plugin/plugin.yaml`. `python tools/check_versions.py` says whether they agree, and CI fails when they don't.
-2. Merge, then push a tag: `git tag v0.2.0 && git push origin v0.2.0`.
-3. The **Release** workflow checks the four files against the tag, builds every board in `platformio.ini`, and publishes the files as a GitHub release. Its notes include the command that installs the plugin from the same commit (`hermes plugins install … --ref <commit>`).
+1. Set the new version in all four files that carry it: `PROJECT_VER` in `firmware/esp32/CMakeLists.txt`, `pyproject.toml`, `python/hermes_gadget/__init__.py` and `plugin/plugin.yaml`, and move the `## Unreleased` entries in `CHANGELOG.md` under a `## <version>` heading. `python tools/check_versions.py --tag v<version>` says whether they agree and the section exists.
+2. Merge, wait for CI and the Hermes run to pass on `main`, then tag that commit: `git tag v0.2.0 && git push origin v0.2.0`.
+3. The **Release** workflow refuses a commit without successful CI and Hermes runs, checks the four files and the changelog against the tag, builds every board in `platformio.ini`, and publishes the files as a GitHub release. Its notes open with the changelog section and include the command that installs the plugin from the same commit (`hermes plugins install … --ref <commit>`).
 
 To package local builds: `pio run && python tools/package_release.py --all --out dist`.
 

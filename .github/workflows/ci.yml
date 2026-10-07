@@ -14,14 +14,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changelog:
+    name: Changelog entry
+    # Every pull request adds a line to CHANGELOG.md's Unreleased section, or carries the
+    # no-changelog label (internal refactors, test-only fixes, dependency bumps).
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+      - name: Check
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          case ",$LABELS," in *,no-changelog,*) echo "no-changelog label: skipped"; exit 0;; esac
+          if git diff --name-only "$BASE...HEAD" | grep -qx CHANGELOG.md; then
+            echo "CHANGELOG.md is updated"
+          else
+            echo "::error file=CHANGELOG.md::Add a line under '## Unreleased' in CHANGELOG.md, or label the PR no-changelog"
+            exit 1
+          fi
+
   boards:
     name: Discover firmware boards
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       boards: ${{ steps.list.outputs.boards }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
         with:
           python-version: "3.12"
       - id: list
@@ -37,12 +62,13 @@ jobs:
   core:
     name: Firmware core (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-latest]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: Configure
         run: cmake -S firmware -B build/host -DCMAKE_BUILD_TYPE=Release
       - name: Build
@@ -53,6 +79,7 @@ jobs:
   python:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -61,8 +88,8 @@ jobs:
           - {python: "3.12", os: ubuntu-24.04, name: "Python 3.12"}
           - {python: "3.12", os: ubuntu-24.04-arm, name: "Linux ARM64"}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -70,7 +97,7 @@ jobs:
         run: pip install -e ".[dev,images,display,mqtt]"
       - name: Build the simulator library
         run: hermes-gadget build-sim
-      - uses: actions/setup-node@v7  # the installer's console client runs against the simulator core
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7; the installer's console client runs against the simulator core
         with:
           node-version: 22
       - name: Install virtual display
@@ -91,7 +118,7 @@ jobs:
         run: |
           archive=$(find dist -name '*-linux-arm64.tar.gz')
           docker run --rm -v "$PWD:/source:ro" debian:trixie-slim sh /source/linux/test_install.sh "/source/$archive"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         if: matrix.name == 'Linux ARM64'
         with:
           name: linux-arm64
@@ -101,9 +128,10 @@ jobs:
   site:
     name: Installer site
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7
         with:
           node-version: 22
           cache: npm
@@ -128,21 +156,22 @@ jobs:
     name: ESP32 firmware (${{ matrix.board }})
     needs: boards
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         board: ${{ fromJSON(needs.boards.outputs.boards) }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
         with:
           python-version: "3.12"
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6
         with:
           path: ~/.platformio
           key: platformio-${{ runner.os }}-${{ hashFiles('firmware/esp32/platformio.ini', 'firmware/esp32/main/idf_component.yml') }}
       - name: Install PlatformIO
-        run: pip install platformio
+        run: pip install platformio==6.2.0
       - name: Build
         working-directory: firmware/esp32
         run: pio run -e ${{ matrix.board }}
@@ -150,7 +179,7 @@ jobs:
         working-directory: firmware/esp32
         run: python tools/package_release.py --board ${{ matrix.board }} --out dist
       - name: Keep the images
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: firmware-${{ matrix.board }}
           path: firmware/esp32/dist/

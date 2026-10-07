@@ -22,7 +22,7 @@ def test_every_file_carries_the_same_version():
 
 
 def _copy(tmp_path):
-    for rel in check_versions.FILES:
+    for rel in [*check_versions.FILES, "CHANGELOG.md"]:
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(REPO / rel, tmp_path / rel)
     return tmp_path
@@ -46,8 +46,14 @@ def test_the_tag_must_match(tmp_path, capsys):
     assert "the tag v99.0.0 doesn't match" in capsys.readouterr().err
 
 
-def test_a_missing_version_is_reported(tmp_path, capsys):
+def test_the_tag_needs_its_changelog_section(tmp_path, capsys):
     repo = _copy(tmp_path)
-    (repo / "python" / "hermes_gadget" / "__init__.py").write_text('"""No version here."""\n', encoding="utf-8")
-    assert check_versions.main(["--repo", str(repo)]) == 1
-    assert "python/hermes_gadget/__init__.py: no version found" in capsys.readouterr().err
+    version = check_versions.versions(repo)["pyproject.toml"]
+    assert check_versions.changelog_has(version, repo)
+    changelog = repo / "CHANGELOG.md"
+    text = changelog.read_text(encoding="utf-8").replace(f"## {version}\n", "## Unreleased\n", 1)
+    changelog.write_text(text, encoding="utf-8")
+    assert not check_versions.changelog_has(version, repo)
+    assert check_versions.main(["--repo", str(repo), "--tag", f"v{version}"]) == 1
+    assert f"CHANGELOG.md has no '## {version}' section" in capsys.readouterr().err
+    assert check_versions.main(["--repo", str(repo)]) == 0, "without a tag the changelog is not required"
