@@ -197,6 +197,8 @@ class App {
   void dismiss_overlay();
   // A question from Hermes is on screen (it waits while the user is recording).
   bool prompt_showing() const;
+  // Holding the title (or round settings target) would open or close settings.
+  bool settings_hold_live() const;
   // True when a press that started at `pressed_at` may answer the question.
   bool prompt_armed(uint32_t pressed_at) const;
   void answer_prompt(bool yes);

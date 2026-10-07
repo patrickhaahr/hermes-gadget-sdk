@@ -5,8 +5,10 @@
 
 namespace hg {
 
+bool App::settings_hold_live() const { return !prompt_showing() && !ota_busy() && !wifi_setup_open(); }
+
 bool App::settings_title_hit(int x, int y) const {
-  return ui_ && !prompt_showing() && !ota_busy() && !wifi_setup_open() && ui_->title_hit(x, y);
+  return ui_ && settings_hold_live() && ui_->title_hit(x, y);
 }
 
 bool App::open_settings() {

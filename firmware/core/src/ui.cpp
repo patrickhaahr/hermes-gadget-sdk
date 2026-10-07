@@ -151,8 +151,10 @@ Ui::Ui(Display& display) : display_(display), panel_(display.info()), info_(pane
   int w = info_.width, h = info_.height;
   int s = std::max(1, std::min(4, std::min(w / 160, h / 120)));
   layout_.scale = s;
-  layout_.top_h = Canvas::line_height(s) + 2 * s;
-  layout_.bottom_h = layout_.top_h;
+  const int bar_h = Canvas::line_height(s) + 2 * s;
+  layout_.top_h = panel_.round ? std::max(36, 26 * s) : bar_h;
+  layout_.bottom_h = bar_h;
+  layout_.title_w = panel_.round ? std::min(w, 120 * s) : w;
   layout_.header_h = Canvas::line_height(s + 1) + 4 * s;
   layout_.main_y = layout_.top_h;
   layout_.main_h = h - layout_.top_h - layout_.bottom_h;
@@ -190,7 +192,7 @@ void Ui::render(const UiModel& m) {
   const int y_bottom = h - layout_.bottom_h;
 
   uint32_t hashes[4];
-  hashes[0] = Hash().add(m.title).val(m.link).get();
+  hashes[0] = Hash().add(m.title).val(m.link).val(panel_.round && m.screen == Screen::Settings).val(panel_.round && m.settings_hold).get();
   hashes[1] = Hash()
                   .val(m.screen)
                   .add(m.headline)
@@ -273,9 +275,14 @@ void Ui::draw_top(Canvas& c, const UiModel& m) {
   }
   int ty = s;
   if (panel_.round) {
-    // A round face stays quiet: just the link dot, centred, like a watch's status mark.
+    // The settings hold target: the link dot above its label. The label's line (16s + 9s) fits the band.
     int r = std::max(2, 3 * s / 2 + 1);
-    c.fill_circle(w / 2, layout_.top_h / 2, r, dot);
+    if (m.settings_hold) {
+      c.fill_rect((w - layout_.title_w) / 2, 0, layout_.title_w, layout_.top_h, kBar);
+      const char* control = m.screen == Screen::Settings ? "BACK TO HERMES" : "SETTINGS";
+      c.text((w - Canvas::text_width(control, s)) / 2, 16 * s, control, s, kDim);
+    }
+    c.fill_circle(w / 2, 7 * s, r, dot);
     return;
   }
   int label_w = Canvas::text_width(label, s);
