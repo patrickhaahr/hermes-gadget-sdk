@@ -12,8 +12,16 @@ namespace {
 const char* TAG = "hg.nvs";
 constexpr const char* kNamespace = "hgadget";
 
-// NVS keys are limited to 15 characters; every core setting key fits.
-std::string key_of(std::string_view key) { return std::string(key.substr(0, NVS_KEY_NAME_MAX_SIZE - 1)); }
+// NVS keys are limited to 15 characters; every core setting key fits. A longer
+// key is refused rather than cut, so two settings can never share a slot.
+bool key_of(std::string_view key, std::string& out) {
+  if (key.empty() || key.size() > NVS_KEY_NAME_MAX_SIZE - 1) {
+    ESP_LOGE(TAG, "key '%.*s' is not 1..%d characters", static_cast<int>(key.size()), key.data(), NVS_KEY_NAME_MAX_SIZE - 1);
+    return false;
+  }
+  out.assign(key);
+  return true;
+}
 
 class Lock {
  public:
@@ -40,7 +48,8 @@ bool NvsStorage::begin() {
 
 std::optional<std::string> NvsStorage::get(std::string_view key) {
   Lock l(lock_);
-  std::string k = key_of(key);
+  std::string k;
+  if (!key_of(key, k)) return std::nullopt;
   size_t len = 0;
   if (nvs_get_str(handle_, k.c_str(), nullptr, &len) != ESP_OK || len == 0) return std::nullopt;
   std::vector<char> buf(len);
@@ -48,15 +57,23 @@ std::optional<std::string> NvsStorage::get(std::string_view key) {
   return std::string(buf.data());
 }
 
-void NvsStorage::set(std::string_view key, std::string_view value) {
+bool NvsStorage::set(std::string_view key, std::string_view value) {
   Lock l(lock_);
-  std::string k = key_of(key), v(value);
-  if (nvs_set_str(handle_, k.c_str(), v.c_str()) == ESP_OK) nvs_commit(handle_);
+  std::string k, v(value);
+  if (!key_of(key, k)) return false;
+  esp_err_t err = nvs_set_str(handle_, k.c_str(), v.c_str());
+  if (err == ESP_OK) err = nvs_commit(handle_);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "saving %s failed: %s", k.c_str(), esp_err_to_name(err));
+    return false;
+  }
+  return true;
 }
 
 void NvsStorage::erase(std::string_view key) {
   Lock l(lock_);
-  std::string k = key_of(key);
+  std::string k;
+  if (!key_of(key, k)) return;
   if (nvs_erase_key(handle_, k.c_str()) == ESP_OK) nvs_commit(handle_);
 }
 

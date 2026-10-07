@@ -150,6 +150,8 @@ A voice turn is speech-to-text, the model turn, then text-to-speech. Most of the
 
 ## Where the SDK leans on behavior that is not a formal API
 
+`plugin/compat.py` lists every gateway module the adapter imports and every private `BasePlatformAdapter` member it overrides or calls, with the Hermes commit CI tests against. The gateway runs that check before it creates the adapter, so a Hermes that has changed one of them fails with a message naming it, instead of a traceback from inside the gateway. A test keeps the list complete.
+
 These work on current Hermes and are covered by `tests/test_adapter_hermes.py` and `tests/test_gateway_e2e.py`, but they are conventions rather than documented contracts:
 
 1. **Spoken replies by default.** The adapter overrides `BasePlatformAdapter._should_auto_tts_for_chat`, a private method the runner consults. Hermes's own docs endorse overriding private hooks such as `_keep_typing` for platform UX, but this one is not listed.

@@ -47,12 +47,17 @@ struct FakeHal : hg::Display, hg::AudioIn, hg::AudioOut, hg::Transport, hg::Stor
 
   // Storage
   std::map<std::string, std::string> kv;
+  bool storage_full = false;  // every set() fails, as a worn or misconfigured flash would
   std::optional<std::string> get(std::string_view key) override {
     auto it = kv.find(std::string(key));
     if (it == kv.end()) return std::nullopt;
     return it->second;
   }
-  void set(std::string_view key, std::string_view value) override { kv[std::string(key)] = std::string(value); }
+  bool set(std::string_view key, std::string_view value) override {
+    if (storage_full) return false;
+    kv[std::string(key)] = std::string(value);
+    return true;
+  }
   void erase(std::string_view key) override { kv.erase(std::string(key)); }
 
   // Display
@@ -1491,4 +1496,23 @@ TEST("Wi-Fi setup: opening from USB releases an active talk button") {
   CHECK(!r.app.wifi_setup_open());
   r.advance(30000);
   CHECK_EQ(r.fake.brightness, 0);
+}
+
+TEST("app: a setting that can't be saved is reported, not silently kept in memory") {
+  Rig r;
+  r.app.begin();
+  r.fake.storage_full = true;
+  CHECK_EQ(r.app.console("set name Kitchen"), std::string("@error could not save name"));
+  CHECK(r.app.console("get name").find("\"value\":\"\"") != std::string::npos);
+  r.fake.storage_full = false;
+  CHECK_EQ(r.app.console("set name Kitchen"), std::string("@ok name"));
+  CHECK(r.app.console("get name").find("Kitchen") != std::string::npos);
+}
+
+TEST("app: the device still gets an identity when its key can't be saved") {
+  Rig r;
+  r.fake.storage_full = true;
+  r.app.begin();
+  CHECK(!r.app.device_id().empty());
+  CHECK(r.fake.kv.count("device_key") == 0);
 }

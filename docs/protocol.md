@@ -207,7 +207,7 @@ server                                   device
 | `{"type": "ota.ack", "offset": 16384}` | device → server | Bytes written so far: every 16 KB and at the end |
 | `{"type": "ota.end"}` | server → device | All bytes sent; the device checks the size and SHA-256, then the image itself |
 | `{"type": "ota.done", "version": "0.2.0"}` | device → server | Installed; the device restarts about a second later |
-| `{"type": "ota.error", "code": "checksum", "message": "..."}` | device → server | The update is abandoned. Codes: `unsupported`, `bad_offer`, `too_large`, `no_offer`, `unauthorized`, `flash`, `sequence`, `size`, `checksum`, `invalid`, `timeout`, `no_update` |
+| `{"type": "ota.error", "code": "checksum", "message": "..."}` | device → server | The update is abandoned. Codes: `unsupported`, `bad_offer`, `too_large`, `no_offer`, `unauthorized`, `flash` (also an image whose `HGBOARD=` tag names another board), `sequence`, `size`, `checksum`, `invalid` (also an image with no board tag), `timeout`, `no_update` |
 | `{"type": "ota.abort"}` | server → device | Abandon the update in progress |
 
 ```
