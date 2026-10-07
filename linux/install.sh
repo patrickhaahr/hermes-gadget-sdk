@@ -57,7 +57,12 @@ if [ ! -f "$destination/.installed" ]; then
     cp LICENSE NOTICE THIRD_PARTY_NOTICES.md "$destination/licenses/"
     cp -R LICENSES "$destination/licenses/"
     python3 -m venv --system-site-packages "$destination/venv"
-    "$destination/venv/bin/python" -m pip install "$source_dir/${wheel}[audio,gpio]"
+    # The dependencies are the exact files CI tested: pinned versions, checked against
+    # their hashes, wheels only (no build step on the Pi). The wheel itself was built
+    # from this release and ships in the archive.
+    "$destination/venv/bin/python" -m pip install --require-hashes --only-binary=:all: \
+        -r "$source_dir/requirements.txt"
+    "$destination/venv/bin/python" -m pip install --no-deps --no-index "$source_dir/$wheel"
     HGSIM_LIBRARY="$destination/libhgsim.so" "$destination/venv/bin/python" -c \
         'from hermes_gadget.sim.native import load_library; load_library()'
     touch "$destination/.installed"

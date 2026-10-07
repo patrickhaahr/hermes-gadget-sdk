@@ -31,6 +31,8 @@ The Python jobs in `.github/workflows/ci.yml` run under `xvfb-run` so the deskto
 
 CI runs the adapter and gateway suites in `.github/workflows/hermes.yml`: against the Hermes commit pinned there (`HERMES_REF`) on every push and pull request, and against Hermes `main` once a day. To move the pin, run that workflow by hand with `hermes_ref: main`. When it passes, put the commit it printed into `HERMES_REF` and into `TESTED_HERMES_COMMIT` in `plugin/compat.py`; a test checks that the two agree.
 
+The Raspberry Pi package installs its runtime dependencies from `linux/requirements.txt`, a lock with hashes compiled from `linux/requirements.in` (the `[audio,gpio]` extras). Change the extras in `pyproject.toml` and `requirements.in` together, then regenerate the lock as the file's header says; Dependabot proposes updates to it weekly.
+
 The Linux jobs run on `ubuntu-24.04` rather than `ubuntu-latest`, so a new runner image arrives as a deliberate change instead of a surprise. Every action is pinned to a commit, with the release tag in a comment, and PlatformIO to a version, so a job runs the same code until a change says otherwise. Every job has a timeout. Dependabot proposes the workflows' actions (updating the pinned commits), the installer's npm packages and the Python dependencies weekly, a week after each release.
 
 A pull request also needs a line in `CHANGELOG.md` under `## Unreleased`, checked by the `Changelog entry` job. Label the PR `no-changelog` when nothing user-facing changed (internal refactors, test-only fixes, dependency bumps).

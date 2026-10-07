@@ -34,8 +34,11 @@ sudoedit /etc/hermes-gadget/config.json
 
 Set `server` to your Hermes host, such as `ws://192.168.1.20:8765/gadget`, and
 choose a `name`. Add `token` if your gateway requires it. The installer downloads
-Python dependencies into a private environment, creates the `hermes-gadget`
-service account, and installs the native core. No compiler is needed on the Pi.
+the release's pinned Python dependencies into a private environment, checking
+each file against the hash recorded in the package's `requirements.txt`, so the
+Pi runs exactly what CI tested. It creates the `hermes-gadget` service account
+and installs the native core. No compiler is needed on the Pi; dependencies are
+installed as wheels only.
 Configuration and device state stay outside the installed release directory.
 
 ```bash

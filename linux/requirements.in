@@ -1,0 +1,5 @@
+# The Raspberry Pi client's runtime dependencies: the [audio,gpio] extras of pyproject.toml.
+# requirements.txt is compiled from this with hashes; regenerate it after changing either file:
+#   pip install pip-tools && cd linux && pip-compile --generate-hashes --strip-extras --allow-unsafe --no-header requirements.in
+sounddevice>=0.4.6,<0.6
+gpiozero>=2.0.1,<3
