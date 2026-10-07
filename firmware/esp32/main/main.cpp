@@ -137,9 +137,12 @@ void dispatch(hg::App& app, hgp::Event& ev) {
       break;
     case EventType::Encoder:
       if (ev.len == sizeof(hgp::EncoderSample)) {
+        // A detent is a press and a release, so turning keeps scrolling after
+        // the first detent wakes the screen.
         const auto* encoder = reinterpret_cast<const hgp::EncoderSample*>(ev.data);
-        app.on_button(hg::Button::Up, encoder->direction > 0);
-        app.on_button(hg::Button::Down, encoder->direction < 0);
+        const hg::Button button = encoder->direction > 0 ? hg::Button::Up : hg::Button::Down;
+        app.on_button(button, true);
+        app.on_button(button, false);
       }
       break;
   }
@@ -205,8 +208,8 @@ extern "C" void app_main(void) {
     if (g_codec_speaker.begin(g_codec.out(), board.codec.stereo32, board.codec.speaker_pa ? board.codec.pa : -1)) hal.speaker = &g_codec_speaker;
   }
   g_buttons.begin(board.buttons);
-  const bool touch = peripherals_ready && (board.touch.enabled || board.pwr_key.enabled) &&
-                     g_touch.begin(board.touch, board.pwr_key, i2c_bus);
+  const bool touch = peripherals_ready && (board.touch.enabled || board.pwr_key.enabled || board.encoder.a >= 0) &&
+                     g_touch.begin(board.touch, board.pwr_key, board.encoder, i2c_bus);
 
   hgp::diag::Parts parts;
   parts.display = hal.display == &g_display ? g_display.controller_name()
@@ -231,7 +234,7 @@ extern "C" void app_main(void) {
   profile.default_server_url = CONFIG_HG_DEFAULT_SERVER_URL;
   profile.default_access_token = CONFIG_HG_DEFAULT_ACCESS_TOKEN;
   profile.has_cancel_button = board.buttons.cancel >= 0 || touch;
-  profile.has_scroll_buttons = board.buttons.up >= 0 && board.buttons.down >= 0;
+  profile.has_scroll_buttons = (board.buttons.up >= 0 && board.buttons.down >= 0) || board.encoder.a >= 0;
   profile.talk_label = board.talk_label;
   profile.cancel_label = board.cancel_label;
   if (touch && board.touch.enabled) {

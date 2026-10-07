@@ -88,6 +88,13 @@ bool RgbDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
     return false;
   }
   std::memset(fb_, 0, static_cast<size_t>(cfg.width) * cfg.height * sizeof(uint16_t));
+  // Rows are packed here with red and blue swapped; allocated once, not per flush.
+  staging_ = static_cast<uint16_t*>(heap_caps_malloc(
+      static_cast<size_t>(cfg.width) * cfg.height * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!staging_) {
+    ESP_LOGE(TAG, "unable to allocate the %ux%u flush buffer in PSRAM", cfg.width, cfg.height);
+    return false;
+  }
   done_ = xSemaphoreCreateBinary();
   if (!done_) return false;
 
@@ -191,19 +198,13 @@ hg::DisplayInfo RgbDisplay::info() const {
   info.height = cfg_.height;
   info.swap_bytes = false;
   info.has_backlight = true;
-  info.round = true;
+  info.round = cfg_.round;
   return info;
 }
 
 void RgbDisplay::flush(uint16_t y0, uint16_t y1) {
   if (y0 >= y1 || !panel_) return;
-  const size_t row_size = static_cast<size_t>(cfg_.width) * sizeof(uint16_t);
-  uint16_t* packed = static_cast<uint16_t*>(heap_caps_malloc(
-      static_cast<size_t>(y1 - y0) * row_size, MALLOC_CAP_8BIT));
-  if (!packed) {
-    ESP_LOGE(TAG, "flush row buffer allocation failed for y=%u..%u", y0, y1);
-    return;
-  }
+  uint16_t* packed = staging_;
   for (uint16_t row = y0; row < y1; ++row) {
     const size_t src = static_cast<size_t>(row) * cfg_.width;
     const size_t dst = static_cast<size_t>(row - y0) * cfg_.width;
@@ -216,7 +217,6 @@ void RgbDisplay::flush(uint16_t y0, uint16_t y1) {
   if (xSemaphoreTake(done_, pdMS_TO_TICKS(100)) != pdTRUE) {
     ESP_LOGW(TAG, "RGB flush completion timed out for y=%u..%u", y0, y1);
   }
-  heap_caps_free(packed);
 }
 
 void RgbDisplay::set_backlight(uint8_t percent) {

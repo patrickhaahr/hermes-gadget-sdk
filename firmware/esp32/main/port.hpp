@@ -134,6 +134,7 @@ class RgbDisplay final : public hg::Display {
   esp_lcd_panel_handle_t panel_ = nullptr;
   i2c_master_dev_handle_t expander_ = nullptr;
   uint16_t* fb_ = nullptr;
+  uint16_t* staging_ = nullptr;
   SemaphoreHandle_t done_ = nullptr;
 };
 
@@ -298,10 +299,13 @@ class CodecSpeaker final : public hg::AudioOut {
   std::atomic<bool> flush_{false};
 };
 
-// Polls the vendor CST8XX touch protocol, PCF8574 button, and GPIO rotary encoder.
+// Polls a touchscreen, a key mirrored on an I/O expander and a rotary encoder
+// from its own task (some controllers need a pause between write and read) and
+// posts Touch, Key and Encoder events to the app task.
 class TouchInput {
  public:
-  bool begin(const TouchConfig& touch, const ExpanderKeyConfig& key, i2c_master_bus_handle_t bus);
+  bool begin(const TouchConfig& touch, const ExpanderKeyConfig& key, const EncoderConfig& encoder,
+             i2c_master_bus_handle_t bus);
   bool has_touch() const { return touch_dev_ != nullptr || managed_touch_ != nullptr; }
   bool has_key() const { return key_dev_ != nullptr; }
 
@@ -320,7 +324,6 @@ class TouchInput {
   gpio_num_t encoder_b_ = GPIO_NUM_NC;
   uint8_t encoder_state_ = 0;
   int8_t encoder_accumulator_ = 0;
-  uint8_t expander_outputs_ = 0xff;
 };
 
 class AxpPower final : public hg::Power {

@@ -289,9 +289,9 @@ BoardConfig make() {
   BoardConfig b{};
   b.name = kBoardName;
   b.lcd.enabled = true;
-  b.lcd.controller = LcdController::CrowPanel21;
   b.lcd.width = 480;
   b.lcd.height = 480;
+  b.lcd.round = true;
   b.lcd.swap_xy = false;
   b.lcd.mirror_x = false;
   b.lcd.mirror_y = false;
@@ -309,22 +309,19 @@ BoardConfig make() {
   b.lcd.rgb.cmd_sclk = 2;
   b.lcd.rgb.cmd_sda = 1;
   b.lcd.rgb.i2c_expander = 0x21;
-  b.lcd.rgb.touch_irq = -1;  // Touch interrupt is PCF8574 P2.
-  b.lcd.rgb.encoder_a = 42;
-  b.lcd.rgb.encoder_b = 4;
-  b.lcd.rgb.encoder_button = -1;  // Encoder button is PCF8574 P5, not GPIO5/RGB B0.
   b.lcd.rgb.pclk_hz = 12000000;
   b.i2c = {38, 39, 400000};
   b.touch.enabled = true;
+  b.touch.controller = TouchController::Cst816;  // its CST826 sends the same report
   b.touch.addr = 0x15;
   b.touch.width = 480;
   b.touch.height = 480;
-  b.touch.irq = -1;  // IRQ is routed through PCF8574 P2, not GPIO39/I2C SCL.
   b.pwr_key.enabled = true;
   b.pwr_key.addr = 0x21;
   b.pwr_key.bit = 5;
   b.pwr_key.active_high = false;
-  b.pwr_key.pcf8574 = true;
+  b.pwr_key.pcf8574 = true;  // the knob's push button is PCF8574 P5
+  b.encoder = {42, 4};
   b.buttons = {-1, -1, -1, -1};
   b.talk_label = "BOOT";
   b.cancel_label = "Knob";

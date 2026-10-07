@@ -308,7 +308,7 @@ Unlike the SPI and i80 panels above, the ST7701 takes its initialization command
 | Panel init | 3-wire SPI | CS 16, SCLK 2, SDA 1 |
 | Backlight | PWM | GPIO 6, active-high |
 | I/O expander | PCF8574 @ 0x21 | P0 touch reset, P2 touch IRQ, P3 LCD power, P4 LCD reset, P5 encoder button |
-| Touch | CST-family @ 0x15 | I2C SDA 38, SCL 39 |
+| Touch | CST826 @ 0x15 | I2C SDA 38, SCL 39; read with the CST816 report format (`TouchController::Cst816`) |
 | Rotary encoder | | A 42, B 4; button through the expander |
 
 **Build and flash** it with PlatformIO:
@@ -328,10 +328,10 @@ This port is written from Elecrow's published factory example ([CrowPanel reposi
 2. **Screen:** the mascot is centred inside the circle and not mirrored; colours are right (amber accents, not blue). A red/blue swap means the RGB565 channel order needs flipping.
 3. **Brightness:** cycle 10 → 100 in settings; brightness must rise with the number. The backlight PWM is active-high — do not set `backlight_invert`.
 4. **Touch:** hold the screen and the listening waves appear; a swipe down cancels; hold the title bar one second for settings.
-5. **Knob:** rotating moves through settings items; pressing the knob cancels.
+5. **Knob:** each detent moves one settings item or scrolls a long reply, and the first detent wakes a dark screen; pressing the knob cancels. If the direction is reversed, swap the encoder's A and B pins in `board.cpp`.
 6. **Text:** `say hello` over the console, or a paired Hermes, should render on the display.
 
-Panel timings (12 MHz PCLK, 10/4/20 porches) and the ST7701 init table follow the factory `RotaryScreen_2_1` Arduino example. Display bring-up, the brightness scale, Wi-Fi, pairing and the serial console are smoke-checked on real hardware; touch coordinates and encoder direction are not yet physically verified — see the [hardware validation table](hardware-validation.md).
+Panel timings (12 MHz PCLK, 10/4/20 porches) and the ST7701 init table follow the factory `RotaryScreen_2_1` Arduino example at commit `faf8ecf`; see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md). Display bring-up, the brightness scale, Wi-Fi, pairing and the serial console are smoke-checked on real hardware; touch coordinates and encoder direction are not yet physically verified — see the [hardware validation table](hardware-validation.md).
 
 ## Build and flash
 
