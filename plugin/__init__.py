@@ -25,6 +25,9 @@ def check_requirements() -> bool:
 
 
 def _make_adapter(config):
+    from . import compat
+
+    compat.check()  # a clear error on an incompatible Hermes, before the adapter's imports fail obscurely
     from .adapter import GadgetAdapter
 
     return GadgetAdapter(config)
