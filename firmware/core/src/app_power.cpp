@@ -24,9 +24,7 @@ void App::power_tick() {
     if (settings_open()) update_model();
   }
   if (!hal_.display || !hal_.display->info().has_backlight || !screen_timeout_ms_) return;
-  // An idle display can sleep anywhere in the settings menu — a badge left in
-  // the menu should not burn the backlight, whatever view it is on. The wake
-  // path restores the menu on the same item, including a running check.
+  // The settings menu can sleep too; the wake input leaves it on the same item.
   const bool idle = mode_ == Mode::Idle && !speaking() && !talk_held_ && !cancel_held_ &&
                     !prompt_showing() && wifi_setup_text_.empty() && !ota_busy() && ota_ != Ota::Restarting && overlay_ == Overlay::None &&
                     (phase_ == Phase::NoNetwork || (phase_ == Phase::Online && paired_));
