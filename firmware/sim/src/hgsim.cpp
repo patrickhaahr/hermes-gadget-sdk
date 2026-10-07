@@ -83,8 +83,10 @@ class SimHal final : public hg::Display,
     if (static_cast<size_t>(n) >= sizeof(buf)) n = static_cast<int>(sizeof(buf)) - 1;
     return std::string(buf, static_cast<size_t>(n));
   }
-  void set(std::string_view key, std::string_view value) override {
-    if (host_.storage_set) host_.storage_set(host_.user, std::string(key).c_str(), std::string(value).c_str());
+  bool set(std::string_view key, std::string_view value) override {
+    if (!host_.storage_set) return false;
+    host_.storage_set(host_.user, std::string(key).c_str(), std::string(value).c_str());
+    return true;
   }
   void erase(std::string_view key) override {
     if (host_.storage_erase) host_.storage_erase(host_.user, std::string(key).c_str());

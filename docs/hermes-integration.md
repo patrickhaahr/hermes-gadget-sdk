@@ -122,6 +122,8 @@ The SDK reuses Hermes's DM pairing instead of inventing its own:
 
 The pairing code authorizes the chat in Hermes. The device key, enrolled on first contact and proven by HMAC afterwards, keeps another device from impersonating an approved one.
 
+Until Hermes approves a device, its record is *pending*: at most 16 devices may wait at once, at most 4 from one network address, and a pending record expires an hour after the device's last contact (it simply re-enrolls on its next connection). The hub refuses further strangers with an `error` of code `busy`. `hermes gadget devices` marks pending devices with "waiting to pair". `hermes gadget pair --yes` approves without asking only when exactly one device is waiting; with several, name one: `hermes gadget pair --yes <device>`.
+
 ### Confirmations
 
 Hermes asks before destructive commands (`/new`, `/undo`), costly model switches and dangerous shell commands. Chat platforms render those as buttons; the gadget renders them as a yes/no `prompt` (see [protocol.md](protocol.md#questions)):
@@ -147,6 +149,8 @@ A voice turn is speech-to-text, the model turn, then text-to-speech. Most of the
 | `stt.provider` | Cloud STT takes about 2–3 s for a short clip. Local `faster-whisper` can be quicker on a fast CPU |
 
 ## Where the SDK leans on behavior that is not a formal API
+
+`plugin/compat.py` lists every gateway module the adapter imports and every private `BasePlatformAdapter` member it overrides or calls, with the Hermes commit CI tests against. The gateway runs that check before it creates the adapter, so a Hermes that has changed one of them fails with a message naming it, instead of a traceback from inside the gateway. A test keeps the list complete.
 
 These work on current Hermes and are covered by `tests/test_adapter_hermes.py` and `tests/test_gateway_e2e.py`, but they are conventions rather than documented contracts:
 
@@ -190,6 +194,6 @@ Each would replace a workaround above with a small, generic hook that every plat
 
 The adapter binds its own port, so give each profile that serves gadgets a different `platforms.gadget.extra.port`.
 
-Device keys and pending pairing codes live in the plugin data directory. It is resolved with `plugin_data_dir("gadget")` when the adapter connects, so it follows whichever Hermes home the adapter is started under.
+Device keys and pending pairing codes live in the plugin data directory. It is resolved with `plugin_data_dir("gadget")` when the adapter connects, so it follows whichever Hermes home the adapter is started under. The gateway re-reads `devices.json` before each lookup or change, so `hermes gadget forget` and `hermes gadget pair` from another terminal take effect without a restart.
 
 The agent tools look up the adapter for the session's profile (`HERMES_SESSION_PROFILE`). Multi-profile setups have only been exercised in unit tests so far.

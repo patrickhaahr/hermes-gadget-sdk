@@ -30,6 +30,8 @@ PLAYBACK_LEAD_S = 0.5        # how far ahead of real time playback audio is sent
 IMAGE_CHUNK_BYTES = 4096
 MIN_UTTERANCE_S = 0.25
 MAX_FRAME_BYTES = 1 << 20
+MAX_PENDING_DEVICES = 16     # unapproved devices the store keeps, in total...
+MAX_PENDING_PER_ADDRESS = 4  # ...and from one network address
 
 
 class HubDelegate:
@@ -274,6 +276,8 @@ class DeviceSession:
         if paired == self.paired:
             return
         self.paired = paired
+        if paired:
+            self.hub.store.confirm(self.device_id)
         await self.send_json(protocol.message("paired" if paired else "unpaired"))
 
     async def ask(self, prompt_id: str, title: str, text: str, ttl_s: float | None = None) -> None:
@@ -504,6 +508,13 @@ class DeviceHub:
             return connection.respond(404, "Not a Hermes gadget endpoint\n")
         return None
 
+    @staticmethod
+    def _address(ws) -> str:
+        try:
+            return str(ws.remote_address[0])
+        except (AttributeError, IndexError, TypeError):
+            return ""
+
     async def _recv_json(self, ws, timeout: float) -> dict:
         try:
             raw = await asyncio.wait_for(ws.recv(), timeout)
@@ -547,8 +558,18 @@ class DeviceHub:
             key = protocol.decode_key(str(auth.get("key") or ""))
             if key is None or protocol.device_id_for_key(key) != device_id:
                 raise Rejected("auth_failed", "enrollment key does not match device_id")
-            self.store.enroll(device_id, key, name=str(hello.get("name") or ""), board=str(hello.get("board") or ""))
-            log.info("enrolled new device %s (%s)", device_id, hello.get("name"))
+            # Anyone who reaches the port can enroll; pairing is what admits them. Until
+            # then a device is pending, and only so many may wait at once.
+            address = self._address(ws)
+            pending = self.store.pending()
+            if len(pending) >= MAX_PENDING_DEVICES:
+                raise Rejected("busy", f"{len(pending)} devices are already waiting to be paired; approve or "
+                                       "forget some first (hermes gadget devices)")
+            if sum(1 for rec in pending.values() if rec.get("address") == address) >= MAX_PENDING_PER_ADDRESS:
+                raise Rejected("busy", f"{address} already has {MAX_PENDING_PER_ADDRESS} devices waiting to be paired")
+            self.store.enroll(device_id, key, name=str(hello.get("name") or ""), board=str(hello.get("board") or ""),
+                              address=address)
+            log.info("enrolled new device %s (%s) from %s", device_id, hello.get("name"), address)
         self.store.touch(device_id, name=str(hello.get("name") or ""), board=str(hello.get("board") or ""),
                          firmware=str(hello.get("firmware") or "")[:32])
         return hello
@@ -571,6 +592,8 @@ class DeviceHub:
             if previous is not None:
                 await previous.close("replaced by a newer connection")
             session.paired = bool(await self.delegate.is_paired(session))
+            if session.paired:
+                self.store.confirm(session.device_id)
             await session.send_json(protocol.message(
                 "welcome", session=session.session_id, paired=session.paired,
                 heartbeat_s=self.heartbeat_s, server="hermes", proto=protocol.VERSION))

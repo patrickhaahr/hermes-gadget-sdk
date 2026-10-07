@@ -74,6 +74,7 @@ bool EspUpdater::begin(size_t size, std::string& error) {
   handle_ = handle;
   open_ = true;
   written_ = 0;
+  board_tag_ = hg::TagScanner("HGBOARD=");
   ESP_LOGI(TAG, "writing %u bytes to %s", static_cast<unsigned>(size), target->label);
   return true;
 }
@@ -102,6 +103,12 @@ bool EspUpdater::write(const uint8_t* data, size_t len, std::string& error) {
       }
     }
   }
+  // The image also names its board somewhere in its data (board.cpp). The host
+  // tools check it too, but an older plugin or a hand-picked file doesn't.
+  if (board_tag_.feed(data, len) && board_tag_.value() != board_) {
+    error = "the image is for " + board_tag_.value() + ", not this board (" + board_ + ")";
+    return false;
+  }
   esp_err_t err = esp_ota_write(static_cast<esp_ota_handle_t>(handle_), data, len);
   if (err != ESP_OK) {
     error = std::string("writing to flash failed: ") + esp_err_to_name(err);
@@ -117,6 +124,11 @@ bool EspUpdater::finish(std::string& error) {
     return false;
   }
   open_ = false;
+  if (!board_tag_.found()) {
+    error = "the image doesn't say which board it is for";
+    esp_ota_abort(static_cast<esp_ota_handle_t>(handle_));
+    return false;
+  }
   // Checks the image's segments and its appended SHA-256 before anything changes.
   esp_err_t err = esp_ota_end(static_cast<esp_ota_handle_t>(handle_));
   if (err != ESP_OK) {

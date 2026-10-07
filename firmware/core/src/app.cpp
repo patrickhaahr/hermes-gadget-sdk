@@ -125,7 +125,8 @@ void App::begin() {
   if (stored.empty() || !crypto::base64_decode(stored, key_) || key_.size() != 32) {
     key_.assign(32, 0);
     hal_.system->random_bytes(key_.data(), key_.size());
-    if (hal_.storage) hal_.storage->set("device_key", crypto::base64_encode(key_.data(), key_.size()));
+    if (hal_.storage && !hal_.storage->set("device_key", crypto::base64_encode(key_.data(), key_.size())))
+      log(LogLevel::Error, "could not save the device key: this identity lasts until the next restart");
     log(LogLevel::Info, "generated a new device key");
   }
   device_id_ = proto::device_id_for_key(key_.data(), key_.size());
@@ -151,7 +152,7 @@ void App::begin() {
       int p = static_cast<int>(std::max<int64_t>(0, std::min<int64_t>(100, args["percent"].as_int())));
       volume_ = static_cast<uint8_t>(p);
       hal_.speaker->set_volume(volume_);
-      if (hal_.storage) hal_.storage->set("volume", std::to_string(p));
+      if (hal_.storage && !hal_.storage->set("volume", std::to_string(p))) log(LogLevel::Warn, "could not save volume");
       result.set("percent", p);
       return true;
     };
@@ -176,7 +177,7 @@ void App::begin() {
       int p = static_cast<int>(std::max<int64_t>(5, std::min<int64_t>(100, args["percent"].as_int())));
       hal_.display->set_backlight(static_cast<uint8_t>(p));
       brightness_ = static_cast<uint8_t>(p);
-      if (hal_.storage) hal_.storage->set("brightness", std::to_string(p));
+      if (hal_.storage && !hal_.storage->set("brightness", std::to_string(p))) log(LogLevel::Warn, "could not save brightness");
       result.set("percent", p);
       return true;
     };
@@ -1622,7 +1623,7 @@ std::string App::console(std::string_view raw) {
       return "@error screen_timeout must be 0..3600 seconds";
     if (!hal_.storage) return "@error no storage";
     if (value.empty()) hal_.storage->erase(key);
-    else hal_.storage->set(key, value);
+    else if (!hal_.storage->set(key, value)) return "@error could not save " + key;
     load_settings();
     if (key == "server" || key == "token") {
       // Reconnect with the new endpoint or credentials.

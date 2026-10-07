@@ -19,7 +19,9 @@
 #include "axp2101.hpp"
 #include "band_flush.hpp"
 #include "cores3.hpp"
+#include "shared_reply.hpp"
 #include "speaker_pa.hpp"
+#include "tag_scanner.hpp"
 #include "driver/i2c_master.h"
 #include "driver/i2s_std.h"
 #include "esp_codec_dev.h"
@@ -30,6 +32,7 @@
 #include "esp_lcd_io_i80.h"
 #include "esp_lcd_types.h"
 #include "esp_lcd_touch.h"
+#include "esp_log.h"
 #include "esp_websocket_client.h"
 #include "esp_http_server.h"
 #include "freertos/semphr.h"
@@ -58,10 +61,20 @@ struct EncoderSample {
   int8_t direction;
 };
 
-struct ConsoleRequest {
-  SemaphoreHandle_t done;
-  std::string reply;
+// Wakes a console command when the app task has answered it.
+struct ConsoleSignal {
+  SemaphoreHandle_t handle = xSemaphoreCreateBinary();
+  ~ConsoleSignal() {
+    if (handle) vSemaphoreDelete(handle);
+  }
+  void give() {
+    if (handle) xSemaphoreGive(handle);
+  }
+  bool wait(uint32_t timeout_ms) { return handle && xSemaphoreTake(handle, pdMS_TO_TICKS(timeout_ms)) == pdTRUE; }
 };
+
+// Shared by the console task and the app task; see shared_reply.hpp.
+using ConsoleRequest = hg::SharedReply<ConsoleSignal>;
 
 struct Event {
   EventType type;
@@ -94,7 +107,7 @@ class NvsStorage final : public hg::Storage {
  public:
   bool begin();
   std::optional<std::string> get(std::string_view key) override;
-  void set(std::string_view key, std::string_view value) override;
+  bool set(std::string_view key, std::string_view value) override;
   void erase(std::string_view key) override;
 
  private:
@@ -135,6 +148,7 @@ class RgbDisplay final : public hg::Display {
   esp_lcd_panel_handle_t panel_ = nullptr;
   i2c_master_dev_handle_t expander_ = nullptr;
   uint16_t* fb_ = nullptr;
+  bool draw_failed_ = false;
   uint16_t* staging_ = nullptr;
   SemaphoreHandle_t done_ = nullptr;
 };
@@ -219,6 +233,7 @@ class ParallelDisplay final : public hg::Display {
   int bounce_rows_ = 0;
   uint8_t backlight_level_ = 0;
   SemaphoreHandle_t done_ = nullptr;
+  std::optional<hg::BandFlush> bands_;
 };
 
 // QSPI AMOLED (CO5300) via esp_lcd panel IO. Same framebuffer and bounce-buffer
@@ -239,7 +254,33 @@ class AmoledDisplay final : public hg::Display {
   uint16_t* fb_ = nullptr;
   uint16_t* bounce_ = nullptr;
   SemaphoreHandle_t done_ = nullptr;
+  std::optional<hg::BandFlush> bands_;
 };
+
+// Logs a failed ESP-IDF call. A display's begin() returns false on one, so the
+// gadget runs without a screen instead of rebooting in a loop.
+inline bool esp_ok(esp_err_t err, const char* tag, const char* what) {
+  if (err == ESP_OK) return true;
+  ESP_LOGE(tag, "%s failed: %s", what, esp_err_to_name(err));
+  return false;
+}
+
+// What a BandFlush result means for the person reading the log.
+inline void report_band_event(const char* tag, hg::BandFlush::Event event) {
+  switch (event) {
+    case hg::BandFlush::Event::TimedOut:
+      ESP_LOGE(tag, "LCD transfer timed out; display paused until it completes");
+      break;
+    case hg::BandFlush::Event::Resumed:
+      ESP_LOGW(tag, "late LCD transfer completed; display resumed");
+      break;
+    case hg::BandFlush::Event::Failed:
+      ESP_LOGE(tag, "LCD transfer failed; display updates stopped until reboot");
+      break;
+    case hg::BandFlush::Event::None:
+      break;
+  }
+}
 
 // Pulses the board's TCA9554 reset lines before the display and touch start.
 bool tca9554_reset(i2c_master_bus_handle_t bus, const ExpanderResetConfig& reset);
@@ -385,6 +426,8 @@ class EspUpdater final : public hg::Updater {
  public:
   // Looks at the running image: if it is on probation, starts the rollback clock.
   void start();
+  // The board name an image must carry (HGBOARD=<name>) to be installed.
+  void expect_board(const char* name) { board_ = name ? name : ""; }
   size_t capacity() const override;
   bool begin(size_t size, std::string& error) override;
   bool write(const uint8_t* data, size_t len, std::string& error) override;
@@ -398,6 +441,8 @@ class EspUpdater final : public hg::Updater {
 
  private:
   static constexpr size_t kHeadBytes = 112;  // image + segment headers, then the app description up to its project name
+  std::string board_;
+  hg::TagScanner board_tag_{"HGBOARD="};
   const void* target_ = nullptr;             // esp_partition_t
   uint32_t handle_ = 0;                      // esp_ota_handle_t
   bool open_ = false;

@@ -160,16 +160,16 @@ bool RgbDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
   panel_cfg.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR;
   panel_cfg.bits_per_pixel = 16;
   panel_cfg.vendor_config = &vendor;
-  ESP_ERROR_CHECK(esp_lcd_new_panel_st7701(io_, &panel_cfg, &panel_));
+  if (!esp_ok(esp_lcd_new_panel_st7701(io_, &panel_cfg, &panel_), TAG, "esp_lcd_new_panel_st7701")) return false;
   esp_lcd_rgb_panel_event_callbacks_t callbacks = {};
   callbacks.on_color_trans_done = &RgbDisplay::on_color_done;
-  ESP_ERROR_CHECK(esp_lcd_rgb_panel_register_event_callbacks(panel_, &callbacks, this));
+  if (!esp_ok(esp_lcd_rgb_panel_register_event_callbacks(panel_, &callbacks, this), TAG, "esp_lcd_rgb_panel_register_event_callbacks")) return false;
   void* scanout_fb = nullptr;
-  ESP_ERROR_CHECK(esp_lcd_rgb_panel_get_frame_buffer(panel_, 1, &scanout_fb));
+  if (!esp_ok(esp_lcd_rgb_panel_get_frame_buffer(panel_, 1, &scanout_fb), TAG, "esp_lcd_rgb_panel_get_frame_buffer")) return false;
   ESP_LOGI(TAG, "RGB scanout framebuffer allocated at %p", scanout_fb);
-  ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_));
-  ESP_ERROR_CHECK(esp_lcd_panel_init(panel_));
-  ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_, true));
+  if (!esp_ok(esp_lcd_panel_reset(panel_), TAG, "esp_lcd_panel_reset")) return false;
+  if (!esp_ok(esp_lcd_panel_init(panel_), TAG, "esp_lcd_panel_init")) return false;
+  if (!esp_ok(esp_lcd_panel_disp_on_off(panel_, true), TAG, "esp_lcd_panel_disp_on_off")) return false;
 
   ledc_timer_config_t timer = {};
   timer.speed_mode = LEDC_LOW_SPEED_MODE;
@@ -177,7 +177,7 @@ bool RgbDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
   timer.timer_num = LEDC_TIMER_1;
   timer.freq_hz = 5000;
   timer.clk_cfg = LEDC_AUTO_CLK;
-  ESP_ERROR_CHECK(ledc_timer_config(&timer));
+  if (!esp_ok(ledc_timer_config(&timer), TAG, "ledc_timer_config")) return false;
   ledc_channel_config_t channel = {};
   channel.gpio_num = cfg.backlight;
   channel.speed_mode = LEDC_LOW_SPEED_MODE;
@@ -185,7 +185,7 @@ bool RgbDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
   channel.timer_sel = LEDC_TIMER_1;
   channel.duty = 0;
   channel.flags.output_invert = cfg.backlight_invert;
-  ESP_ERROR_CHECK(ledc_channel_config(&channel));
+  if (!esp_ok(ledc_channel_config(&channel), TAG, "ledc_channel_config")) return false;
   set_backlight(80);
   ESP_LOGI(TAG, "ST7701 %ux%u RGB panel initialized at %lu Hz", cfg.width, cfg.height,
            static_cast<unsigned long>(cfg.rgb.pclk_hz));
@@ -213,7 +213,14 @@ void RgbDisplay::flush(uint16_t y0, uint16_t y1) {
       packed[dst + col] = swap_rgb565_red_blue(pixel);
     }
   }
-  ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_, 0, y0, cfg_.width, y1, packed));
+  // The RGB driver copies from `packed` into its own scanout buffer, so a
+  // failure or a late completion here costs one frame, never a reboot.
+  esp_err_t err = esp_lcd_panel_draw_bitmap(panel_, 0, y0, cfg_.width, y1, packed);
+  if (err != ESP_OK) {
+    if (!draw_failed_) ESP_LOGE(TAG, "RGB flush failed: %s (reported once)", esp_err_to_name(err));
+    draw_failed_ = true;
+    return;
+  }
   if (xSemaphoreTake(done_, pdMS_TO_TICKS(100)) != pdTRUE) {
     ESP_LOGW(TAG, "RGB flush completion timed out for y=%u..%u", y0, y1);
   }
@@ -221,8 +228,8 @@ void RgbDisplay::flush(uint16_t y0, uint16_t y1) {
 
 void RgbDisplay::set_backlight(uint8_t percent) {
   const uint32_t duty = (1023u * std::min<uint8_t>(percent, 100)) / 100u;
-  ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, kBacklightChannel, duty));
-  ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, kBacklightChannel));
+  if (ledc_set_duty(LEDC_LOW_SPEED_MODE, kBacklightChannel, duty) == ESP_OK)
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, kBacklightChannel);
 }
 
 }  // namespace hgp
