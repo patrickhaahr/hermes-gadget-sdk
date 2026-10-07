@@ -20,14 +20,40 @@ concurrency:
   group: release-${{ inputs.tag || github.ref_name }}
 
 jobs:
-  linux:
-    name: Build Linux ARM64
-    runs-on: ubuntu-24.04-arm
+  verify:
+    name: CI passed on this commit
+    # A tag is published only from a commit whose CI and Hermes runs already succeeded,
+    # so a release never ships something main's checks have not seen.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           ref: ${{ inputs.tag || github.ref }}
-      - uses: actions/setup-python@v7
+      - name: Look up the runs for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          for workflow in ci.yml hermes.yml; do
+            if gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --commit "$sha" --status success --limit 1 --json databaseId -q '.[0].databaseId' | grep -q .; then
+              echo "$workflow succeeded on $sha"
+            else
+              echo "::error::$workflow has no successful run on $sha. Merge, wait for green CI on main, then tag that commit."
+              exit 1
+            fi
+          done
+
+  linux:
+    name: Build Linux ARM64
+    needs: verify
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
         with:
           python-version: "3.12"
       - name: Build the native core and Python wheel
@@ -37,7 +63,7 @@ jobs:
           ctest --test-dir build/host --output-on-failure
           python -m pip wheel --no-deps . --wheel-dir build/wheels
           python linux/package.py --library build/host/libhgsim.so --wheel build/wheels/hermes_gadget-*.whl
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: linux-arm64
           path: dist/hermes-gadget-*-linux-arm64.tar.gz*
@@ -46,24 +72,26 @@ jobs:
     name: Build and publish
     needs: linux
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           ref: ${{ inputs.tag || github.ref }}
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
         with:
           python-version: "3.12"
-      - name: Check the version
-        # The firmware, the Python package and the plugin must all carry the tag's version.
+      - name: Check the version and the changelog
+        # The firmware, the Python package and the plugin must all carry the tag's version,
+        # and CHANGELOG.md must have that version's section.
         run: python tools/check_versions.py --tag "$TAG"
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6
         with:
           path: ~/.platformio
           key: platformio-${{ runner.os }}-${{ hashFiles('firmware/esp32/platformio.ini', 'firmware/esp32/main/idf_component.yml') }}
       - name: Install PlatformIO
-        run: pip install platformio
+        run: pip install platformio==6.2.0
       - name: Build every board
         working-directory: firmware/esp32
         run: pio run
@@ -71,8 +99,8 @@ jobs:
         working-directory: firmware/esp32
         run: >-
           python tools/package_release.py --all --out dist --expect-version "${TAG#v}"
-          --notes "$RUNNER_TEMP/notes.md" --commit "$(git rev-parse HEAD)"
-      - uses: actions/download-artifact@v8
+          --notes "$RUNNER_TEMP/notes.md" --commit "$(git rev-parse HEAD)" --changelog ../../CHANGELOG.md
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: linux-arm64
           path: firmware/esp32/dist/

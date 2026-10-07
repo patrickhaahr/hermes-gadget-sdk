@@ -219,8 +219,16 @@ def write_release(builds: list[Build], out: Path, project: Path = PROJECT_DIR) -
     return manifest
 
 
-def release_notes(manifest: dict, commit: str | None = None) -> str:
+def changelog_section(changelog: str, version: str) -> str:
+    """The body of CHANGELOG.md's "## <version>" section, or an empty string."""
+    m = re.search(rf"(?ms)^## {re.escape(version)}\s*$\n(.*?)(?=^## |\Z)", changelog)
+    return m.group(1).strip() if m else ""
+
+
+def release_notes(manifest: dict, commit: str | None = None, changelog: str | None = None) -> str:
     version = manifest["version"]
+    changes = changelog_section(changelog, version) if changelog else ""
+    changes = f"\n{changes}\n" if changes else ""
     rows = "\n".join(f"| {b['title']} | `{b['image']['path']}` | `{b['app']['path']}` |" for b in manifest["builds"])
     chips = sorted({b["chip"].lower().replace("-", "") for b in manifest["builds"]})
     plugin = "" if not commit else f"""
@@ -231,7 +239,7 @@ hermes plugins install {GIT_URL}#plugin --ref {commit} --enable
 ```
 """
     return f"""Hermes Gadget firmware {version}.
-
+{changes}
 **Install from your browser:** {INSTALLER_URL} (Chrome or Edge, over USB). It checks the board before \
 writing, and a device you reinstall keeps its settings.
 
@@ -258,6 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--expect-version", help="Fail unless the firmware reports this version (e.g. from the tag)")
     p.add_argument("--notes", type=Path, help="Also write release notes (Markdown) to this file")
     p.add_argument("--commit", help="The release's commit, for the pinned plugin install in the notes")
+    p.add_argument("--changelog", type=Path, help="CHANGELOG.md; its section for this version opens the notes")
     args = p.parse_args(argv)
 
     try:
@@ -275,7 +284,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"package_release: {exc}", file=sys.stderr)
         return 1
     if args.notes:
-        args.notes.write_text(release_notes(manifest, args.commit), encoding="utf-8")
+        changelog = args.changelog.read_text(encoding="utf-8") if args.changelog else None
+        args.notes.write_text(release_notes(manifest, args.commit, changelog), encoding="utf-8")
     for build in manifest["builds"]:
         print(f"package_release: {build['image']['path']} ({build['image']['size'] // 1024} KB), "
               f"{build['app']['path']} ({build['app']['size'] // 1024} KB)")
