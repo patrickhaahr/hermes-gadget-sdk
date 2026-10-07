@@ -1,0 +1,6 @@
+{
+  "title": "Xorigin AIPI Lite",
+  "summary": "128x128 screen, one ES8311 codec for speaker and microphone, BOOT and power keys. Experimental.",
+  "docs": "docs/hardware.md#xorigin-aipi-lite",
+  "ready_made": true
+}

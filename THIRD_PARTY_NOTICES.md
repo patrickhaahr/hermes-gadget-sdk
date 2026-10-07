@@ -55,6 +55,8 @@ revision `ec889e789b3cf093412689a143f7f37b42b56af7`, MIT, Copyright (c) 2022 Xin
 The ESP-IDF adaptation and timing changes are recorded in [NOTICE](NOTICE), with
 the upstream license in [LICENSES/LilyGO-MIT.txt](LICENSES/LilyGO-MIT.txt).
 
+The AIPI Lite pin map, panel settings and power wiring follow [xiaozhi-esp32's `xorigin/aipi-lite` board](https://github.com/78/xiaozhi-esp32/tree/0d576d3d4c049c6f55eaf879725dc23e516511b4/main/boards/xorigin/aipi-lite) at commit `0d576d3d4c049c6f55eaf879725dc23e516511b4` (MIT). Only hardware facts are used; see [NOTICE](NOTICE).
+
 The CrowPanel 2.1 ST7701 initialization values in `firmware/esp32/main/crowpanel_st7701_init.hpp`, and the RGB timings, PCF8574 power and reset sequence and pin map in `port_rgb.cpp` and `board.cpp`, follow Elecrow's [RotaryScreen_2_1 example](https://github.com/Elecrow-RD/CrowPanel-2.1inch-HMI-ESP32-Rotary-Display-480-480-IPS-Round-Touch-Knob-Screen/tree/faf8ecf27ec1504b51de7dc4e15b2e7d7e87c79c/example/Arduino/RotaryScreen_2_1) at commit `faf8ecf27ec1504b51de7dc4e15b2e7d7e87c79c`. That repository has no license, so only these hardware facts are used, re-expressed for Espressif's `esp_lcd_st7701` driver; see [NOTICE](NOTICE).
 
 ## Release packages

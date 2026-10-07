@@ -44,6 +44,7 @@ struct LcdConfig {
   LcdController controller = LcdController::St7789;
   bool reset_active_high = false;
   bool backlight_invert = false;  // active-low GPIO backlight, independent of pixel inversion
+  bool bgr = false;  // the panel's color filter is BGR (SpiDisplay)
   int d1 = -1, d2 = -1, d3 = -1;  // QSPI data0 uses mosi
   bool round = false;
 };
@@ -147,7 +148,7 @@ struct EncoderConfig {
 // A battery behind a resistive divider, with a latch that keeps it powered.
 struct LatchPowerConfig {
   bool enabled = false;
-  int adc = -1, enable = -1, charging = -1;
+  int adc = -1, enable = -1, charging = -1;  // adc -1: no battery voltage reading
   int backlight = -1;
   // VBAT = VADC * ratio. Waveshare's LCD-1.54 divides by three; the T-Display-S3
   // divides by two. Ignored when the ADC pin is -1.
