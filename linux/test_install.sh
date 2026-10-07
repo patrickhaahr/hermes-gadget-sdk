@@ -22,9 +22,11 @@ echo "$*" >> /systemctl.log
 stop() { if [ -f /service.pid ]; then kill "$(cat /service.pid)" 2>/dev/null || true; rm -f /service.pid; sleep 1; fi; }
 start() {
     [ -f /service.pid ] && return 0
+    # Real systemd starts the service from PID 1. Here it is a child of whoever called
+    # systemctl, so close the installer's lock descriptor (9) or the lock stays held.
     HGSIM_LIBRARY=/opt/hermes-gadget/current/libhgsim.so runuser -u hermes-gadget -- \
         /opt/hermes-gadget/current/venv/bin/hermes-gadget linux --state-dir /var/lib/hermes-gadget \
-        run --config /etc/hermes-gadget/config.json >> /service.log 2>&1 &
+        run --config /etc/hermes-gadget/config.json >> /service.log 2>&1 9>&- </dev/null &
     echo $! > /service.pid
 }
 case "$1" in
