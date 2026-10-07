@@ -306,8 +306,11 @@ def test_picker_command_runs_in_the_shell_and_preserves_the_picture(tmp_path, pl
     env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env["PATH"]
     shell = (["powershell", "-NoProfile", "-NonInteractive", "-Command", command]
              if os.name == "nt" else ["/bin/sh", "-c", command])
-    result = subprocess.run(shell, cwd=tmp_path, env=env, capture_output=True, text=True,
-                            timeout=60, check=False)
+    # The command is non-interactive, so do not inherit stdin: on Windows the parent's
+    # STD_INPUT_HANDLE is stale once pytest's fd capture has replaced fd 0, and spawning
+    # with it fails with "WinError 6: The handle is invalid".
+    result = subprocess.run(shell, cwd=tmp_path, env=env, stdin=subprocess.DEVNULL,
+                            capture_output=True, text=True, timeout=60, check=False)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "ink box:   x 128..640  y 128..768" in result.stdout
     assert "eyes:      left (192, 256, 320, 384)  right (448, 256, 576, 384)" in result.stdout
