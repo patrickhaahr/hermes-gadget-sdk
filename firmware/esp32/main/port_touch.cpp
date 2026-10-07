@@ -98,7 +98,10 @@ bool TouchInput::begin(const TouchConfig& touch, const ExpanderKeyConfig& key, c
   }
   const bool has_encoder = encoder_a_ != GPIO_NUM_NC;
   if (!has_touch() && !key_dev_ && !has_encoder) return false;
-  xTaskCreate(&TouchInput::task, "hg-touch", 3072, this, 5, nullptr);
+  if (xTaskCreate(&TouchInput::task, "hg-touch", 3072, this, 5, nullptr) != pdPASS) {
+    ESP_LOGE(TAG, "could not start the touch task");
+    return false;
+  }
   ESP_LOGI(TAG, "touch %s, key %s, encoder %s", has_touch() ? "ready" : "off", key_dev_ ? "ready" : "off",
            has_encoder ? "ready" : "off");
   return true;
