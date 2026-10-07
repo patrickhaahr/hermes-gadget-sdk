@@ -11,6 +11,12 @@ build/
 # Host (CMake) builds
 /build/
 
+# Android (Gradle) builds
+android/.gradle/
+android/.kotlin/
+android/app/.cxx/
+android/local.properties
+
 # Installer site
 site/node_modules/
 site/_site/

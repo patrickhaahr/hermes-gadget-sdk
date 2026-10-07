@@ -14,6 +14,10 @@
 - A setting that cannot be saved is reported: `set` answers `@error could not save <key>`, a device key that cannot be saved is logged as an error, and a key longer than NVS allows is refused instead of silently cut.
 - Display transfers no longer race their own DMA: the AMOLED-1.75/1.75C/1.8 and T-Display-S3 drivers now use the same band-by-band flush as the SPI panels, so a late or failed transfer pauses or stops drawing instead of refilling a buffer the DMA is still reading. The CrowPanel RGB path reports a failed flush or backlight change once instead of rebooting, and a display that fails to start leaves the gadget running without a screen (USB console and Wi-Fi still work) instead of rebooting in a loop. A touch task that cannot start is reported as a failed input.
 
+### Android
+
+- An experimental Android client in `android/` runs the device core on a phone through the NDK. It covers pairing, hold-to-talk on the touch screen, spoken replies and the face, with the screen on or off. It can also run as a dedicated device: as device owner it is the home screen, stays pinned and starts after a reboot. It is configured over adb or from its settings screen. CI builds the APK and drives the core through the app's JNI bridge. See [docs/android.md](docs/android.md).
+
 ### Linux
 
 - The Raspberry Pi installer installs the release's pinned Python dependencies from a hash-checked lock file shipped in the package, wheels only, so a Pi runs exactly what CI tested instead of whatever PyPI serves that day. The release workflow runs the container install test before publishing.
