@@ -82,6 +82,42 @@ The USB-C port is the S3's own USB Serial/JTAG, so flashing and the serial conso
 4. **Speaker:** replies are clear and loud enough (`set volume 80`); no hiss between replies.
 5. **Buttons:** BOOT holds to talk, PLUS cancels, and holding PLUS for 2 s starts a new conversation.
 
+## Waveshare ESP32-S3-Touch-LCD-1.85C V2
+
+Use `esp32s3-touch-lcd-185c-v2` for the V2 board, PCB Rev2.0: an ESP32-S3R8 with 16 MB flash and 8 MB octal PSRAM, a round 360×360 ST77916 LCD over QSPI, CST816 touch, an ES8311 DAC, an ES7210 microphone ADC with two microphones and an NS4150B amplifier. A V2 board says Rev2.0 on the PCB or has a V2 sticker on the case. V1 has different audio hardware and must not use this image. The standard SKU needs a speaker on the SPK connector; the speaker-box version includes one. This port is experimental; see the [partial physical report](hardware-validation.md#waveshare-185c-v2-partial-physical-report).
+
+| Part | Connection |
+|---|---|
+| ST77916 LCD, QSPI | CS 21, clock 40, D0–D3 46/45/42/41, backlight 5 (LEDC); reset through TCA9554 P1 |
+| CST816 touch | I2C 0x15, polled; reset through TCA9554 P0 |
+| TCA9554 expander | I2C 0x20; the firmware changes only P0 and P1 |
+| I2C | SDA 11, SCL 10, 400 kHz |
+| ES8311 speaker / ES7210 microphones | I2C 0x18 / 0x40; MCLK 2, BCLK 48, WS 38, DOUT 47, DIN 39; amplifier enable 15 |
+| BOOT | GPIO 0, TALK |
+
+**Audio.** Each I2S frame has two 32-bit slots. The ES7210 packs four 16-bit channels into them: the speaker's playback reference, a microphone, an unused channel and the second microphone. The firmware averages the two microphones into mono and ignores the reference, so there is no echo cancellation. The amplifier is on only while audio plays. Start with a low volume.
+
+Hold the screen or BOOT to talk, tap to answer yes, and swipe down to cancel. RESET is not a CANCEL button. The IMU, RTC, TF card and battery ADC are not used, and the battery switch keeps its hardware function.
+
+```bash
+cd firmware/esp32
+pio run -e esp32s3-touch-lcd-185c-v2 -t upload -t monitor
+```
+
+For ESP-IDF, use `SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/waveshare-esp32-s3-touch-lcd-1.85c-v2/sdkconfig.defaults"` with a separate build directory and sdkconfig. The USB-C port handles flashing and the serial console (115200 baud). The `sim-360x360-round` simulator board has the same screen.
+
+### First flash: what to check
+
+1. **Boot log:** `expander resets 0x03 ready`, `ST77916 panel ID …`, `st77916 360x360 ready`, `codecs: speaker ready, microphones ready` and `touch ready`. An unknown panel ID leaves the display off. In `hermes-gadget diag`, the `i2c` list has `0x15`, `0x18`, `0x20` and `0x40`.
+2. **Screen:** the mascot is centred, upright and not mirrored, the whole circle is visible, and the accents are amber, not blue. Brightness and screen timeout work.
+3. **Touch:** holding the centre and each edge starts a recording; a tap answers yes and a swipe down cancels.
+4. **Microphone:** the waves move with your voice and Hermes's transcript is right.
+5. **Speaker:** replies are clear, with no hiss or pop between them. Cancelling a reply stops it at once, and the next reply plays.
+
+Record the results with the [hardware checklist](hardware-validation.md#record-a-physical-test).
+
+References: [Waveshare V2 documentation](https://docs.waveshare.com/ESP32-S3-Touch-LCD-1.85C), [V2 schematic](https://files.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.85C/ESP32-S3-Touch-LCD-1.85C_V2.pdf) and the [factory demo at 8ead4a96](https://github.com/waveshareteam/ESP32-S3-Touch-LCD-1.85C/tree/8ead4a96bf3a278fc4ebd8ef4768657e17fa2880). The demo numbers the expander pins from one (EXIO1 is P0). The LCD initialization tables and their licenses are listed in [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
+
 ## ESP32-S3-BOX-3
 
 Use `esp32-s3-box-3` for Espressif's BOX-3 with 16 MB flash and 16 MB octal PSRAM. The original BOX and BOX-Lite need different profiles. This port is experimental, with no physical report recorded.
@@ -151,7 +187,7 @@ Use `esp32s3-touch-amoled-175c` for SKUs 33691/33692, the enclosed model with 32
 | AXP2101 | I2C 0x34; ALDO1 at 3.3 V supplies analog audio |
 | BOOT | GPIO 0, TALK |
 
-Hold the screen or BOOT to talk. Swipe down to cancel. Hold the screen's title for one second to open settings. PWR retains its hardware power function; firmware does not map it to CANCEL on this model. There is no TCA9554 expander. The IMU and RTC are not exposed.
+Hold the screen or BOOT to talk. Swipe down to cancel. Hold the **SETTINGS** target at the top of the screen for one second to open settings. PWR retains its hardware power function; firmware does not map it to CANCEL on this model. There is no TCA9554 expander. The IMU and RTC are not exposed.
 
 The firmware enables ALDO1 for audio while preserving the other rails and charging settings. Battery readings and local power-off use the existing AXP2101 driver. An unavailable ADC or gauge reading remains absent. Use the settings menu for microphone, speaker, display, touch, volume, brightness and power checks.
 
@@ -259,6 +295,124 @@ This port is written from Waveshare's published pinout and drivers. On the first
 5. **PWR key:** a short press cancels and holding 2 s starts a new conversation without powering the board off.
 6. **Microphone:** say something; the waves move with your voice, and Hermes's transcript is right.
 7. **Speaker:** replies are clear and loud enough (`set volume 80`); no hiss between replies.
+
+## ESP32-S3-Touch-AMOLED-1.8
+
+Board option `esp32s3-touch-amoled-18`, for Waveshare's rectangular 1.8" board, V2 only (CO5300 display, CST820 touch): an ESP32-S3R8 (8 MB octal PSRAM) with 16 MB flash, a 368×448 AMOLED, one analog microphone, a speaker output and a battery. Nothing needs wiring; plug a small 8 Ω speaker into the **SPK** connector to hear replies.
+
+The V1 board uses a different panel and touch controller, and this image doesn't support it. The 1.75" models also need their own profile: different pins, a round panel and different codecs.
+
+| Part | Chip | Connection |
+|---|---|---|
+| Display | CO5300, QSPI | CS 12, SCLK 11, D0–D3 4/5/6/7; reset through the TCA9554 (LCD_RST); column offset 16 |
+| Touch | CST820 | I2C 0x15, read with the CST816 report format; reset through the TCA9554 (TOUCH_RST); INT 21 unused (polled) |
+| Speaker DAC + microphone ADC | ES8311 | I2C 0x18; I2S MCLK 16, BCLK 9, WS 45, DOUT 8, DIN 10; amplifier enable 46 |
+| Microphone | ES8311 analog input | One analog electret microphone into the ES8311's own ADC (not an ES7210) |
+| Power | AXP2101 | I2C 0x34; battery/USB readings and local power-off; charging and rails keep their defaults |
+| Reset expander | TCA9554 | I2C 0x20; drives LCD_RST (P0), the display power rail (P1) and TOUCH_RST (P2) |
+| I2C bus | | SDA 15, SCL 14, 400 kHz |
+| BOOT key | | GPIO 0 |
+
+The display and touch controllers are held in reset by the TCA9554, not by direct GPIOs. Before the display starts, the firmware pulls P0–P2 low for 20 ms, releases them and waits 150 ms; the other expander pins keep their state.
+
+**Controls.** Hold the screen to talk, tap to answer "yes", swipe down to cancel; hold BOOT to talk as well.
+
+**Build and flash it** with PlatformIO:
+
+```bash
+cd firmware/esp32
+pio run -e esp32s3-touch-amoled-18 -t upload -t monitor
+```
+
+The USB-C port is the S3's own USB Serial/JTAG, used for both flashing and the serial console.
+
+### First flash: what to check
+
+A smoke test on a V2 board confirmed the boot, the display and the I2C devices, and the codec, touch, speaker and microphone tasks started; touch, microphone capture, speaker playback and battery are untested (see [hardware validation](hardware-validation.md)). On the first flash, check:
+
+1. **Boot log:** `CO5300 368x448 ready`, `expander resets 0x07 ready`, `codecs: speaker ready, microphones ready (es8311 analog)` and `touch ready, key off, encoder off`. The `hg.diag` lines should read `parts: display co5300, microphone es8311, speaker es8311, touch yes, key no`. In the `diag` report, `i2c` should include `0x15` (CST820), `0x18` (ES8311), `0x20` (TCA9554) and `0x34` (AXP2101). There is no ES7210 on this board.
+2. **Screen:** the mascot is upright and not mirrored, and the colours are right (amber accents, not blue); a stripe at one edge means the column offset is off. If the image is shifted or the panel stays dark, the vendor init table is the first thing to revisit.
+3. **Touch:** holding the screen shows the listening waves and a swipe *down* cancels. If the coordinates are mirrored, flip `touch.mirror_x`/`mirror_y` in `board.cpp`.
+4. **Microphone:** say something; the waves move with your voice and Hermes's transcript is right. The ES8311 analog input path is the part most likely to need its gain adjusted.
+5. **Speaker:** replies are clear and loud enough (`set volume 80`); no hiss between replies.
+
+The CO5300 start-up table comes from Waveshare's [board support package](https://github.com/waveshareteam/Waveshare-ESP32-components/tree/9f4030c6e5cb888ad4cc268bfa7584c93ad53e30/bsp/esp32_s3_touch_amoled_1_8) at commit `9f4030c`; see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
+
+## Xorigin AIPI Lite
+
+Board option `aipi-lite`, for Xorigin's AIPI Lite: an ESP32-S3 with 16 MB flash and 8 MB octal PSRAM, a 128×128 ST7789 panel, one ES8311 codec for both the speaker and the microphone, BOOT and power keys, and a battery. This port is experimental.
+
+**Back up the factory data before the first flash.** The AIPI Lite keeps its credentials for Xorigin's own service in a factory partition at `0x9000`, where this firmware's settings start, so flashing Hermes Gadget overwrites it. Save it first:
+
+```bash
+esptool.py --chip esp32s3 read_flash 0x9000 16384 nvsfactory.bin
+```
+
+| Part | Chip | Connection |
+|---|---|---|
+| Display | ST7789, SPI | MOSI 17, SCLK 16, CS 15, DC 7, RST 18; 20 MHz, BGR; backlight GPIO 3 |
+| Speaker DAC + microphone ADC | ES8311 | I2C 0x18 on SDA 5, SCL 4; I2S MCLK 6, BCLK 14, WS 12, DOUT 11, DIN 13; amplifier enable 9 |
+| Power | | GPIO 10 latches the supply on and powers the codec; charge signal on GPIO 8; battery divider on GPIO 2 (ADC1 channel 1) |
+| Keys | | BOOT GPIO 42 (TALK), power GPIO 1 (CANCEL) |
+
+The battery level and charging state aren't reported yet: the divider ratio on GPIO 2 hasn't been measured, and the charge signal's polarity isn't confirmed.
+
+**Build and flash it** with PlatformIO:
+
+```bash
+cd firmware/esp32
+pio run -e aipi-lite -t upload -t monitor
+```
+
+The profile expects the USB-C port to be the S3's own USB Serial/JTAG, used for flashing and the serial console. That is inferred from the pin map and not yet confirmed on a board.
+
+### First flash: what to check
+
+1. **Boot log:** `battery latch enabled; no battery voltage reading` and `codecs: speaker ready, microphones ready (es8311 analog)`. The `hg.diag` parts line should read `display st7789, microphone es8311, speaker es8311`.
+2. **Screen:** the mascot is upright and not mirrored, and the colors are right (amber accents, not blue). Swapped red and blue means `lcd.bgr` in `board.cpp` is wrong.
+3. **Microphone:** hold BOOT and speak; the waves move with your voice and Hermes's transcript is right.
+4. **Speaker:** replies are clear and loud enough (`set volume 80`).
+5. **Power:** unplug USB with the battery in, and the device stays on. **Power off** in settings turns it off.
+6. **Console:** `hermes-gadget diag` answers over the USB-C port.
+
+The pin map follows xiaozhi-esp32's `xorigin/aipi-lite` board at commit `0d576d3`; see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
+
+## Elecrow CrowPanel 2.1-inch HMI
+
+Board option `crowpanel-21`, for Elecrow's 2.1" round rotary display: an ESP32-S3R8 (8 MB octal PSRAM) with 16 MB flash, a 480×480 round ST7701 panel on a 16-bit RGB bus, a CST-family capacitive touchscreen, a rotary encoder with a push button, and a PCF8574 I/O expander for panel power, resets and the encoder button. **This board has no microphone or speaker**, so it works as a text gadget: Hermes replies, cards and prompts appear on the screen and typed messages go out through the USB console.
+
+Unlike the SPI and i80 panels above, the ST7701 takes its initialization commands over a 3-wire SPI link and then streams pixels continuously over the **16-bit RGB bus** (`esp_lcd_st7701` + `esp_lcd_panel_io_additions` managed components).
+
+| Part | Chip | Connection |
+|---|---|---|
+| Display | ST7701, 16-bit RGB | DE 40, VSYNC 7, HSYNC 15, PCLK 41 at 12 MHz; data 46/3/8/18/17/14/13/12/11/10/9/5/45/48/47/21; 480×480 round |
+| Panel init | 3-wire SPI | CS 16, SCLK 2, SDA 1 |
+| Backlight | PWM | GPIO 6, active-high |
+| I/O expander | PCF8574 @ 0x21 | P0 touch reset, P2 touch IRQ, P3 LCD power, P4 LCD reset, P5 encoder button |
+| Touch | CST826 @ 0x15 | I2C SDA 38, SCL 39; read with the CST816 report format (`TouchController::Cst816`) |
+| Rotary encoder | | A 42, B 4; button through the expander |
+
+**Build and flash** it with PlatformIO:
+
+```bash
+cd firmware/esp32
+pio run -e crowpanel-21 -t upload -t monitor
+```
+
+Or with `idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/crowpanel-21/sdkconfig.defaults" build`. The USB-C port is the S3's own USB Serial/JTAG, so flashing and the serial console (115200 baud) both use it.
+
+### First flash: what to check
+
+This port is written from Elecrow's published factory example ([CrowPanel repository](https://github.com/Elecrow-RD/CrowPanel-2.1inch-HMI-ESP32-Rotary-Display-480-480-IPS-Round-Touch-Knob-Screen)). On the first flash:
+
+1. **Boot log:** `ST7701 480x480 RGB panel initialized at 12000000 Hz`, `touch ready, key ready, encoder ready`, and `parts: display st7701-rgb, ... touch yes, key yes`.
+2. **Screen:** the mascot is centred inside the circle and not mirrored; colours are right (amber accents, not blue). A red/blue swap means the RGB565 channel order needs flipping.
+3. **Brightness:** cycle 10 → 100 in settings; brightness must rise with the number. The backlight PWM is active-high — do not set `backlight_invert`.
+4. **Touch:** hold the screen and the listening waves appear; a swipe down cancels; hold the title bar one second for settings.
+5. **Knob:** each detent moves one settings item or scrolls a long reply, and the first detent wakes a dark screen; pressing the knob cancels. If the direction is reversed, swap the encoder's A and B pins in `board.cpp`.
+6. **Text:** `say hello` over the console, or a paired Hermes, should render on the display.
+
+Panel timings (12 MHz PCLK, 10/4/20 porches) and the ST7701 init table follow the factory `RotaryScreen_2_1` Arduino example at commit `faf8ecf`; see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md). Display bring-up, the brightness scale, Wi-Fi, pairing and the serial console are smoke-checked on real hardware; touch coordinates and encoder direction are not yet physically verified — see the [hardware validation table](hardware-validation.md).
 
 ## Build and flash
 

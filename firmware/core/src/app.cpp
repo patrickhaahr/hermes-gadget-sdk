@@ -1341,12 +1341,14 @@ void App::update_model() {
   m.body.clear();
   m.yes.clear();
   m.no.clear();
+  m.qr = nullptr;
   m.hero = false;
   m.caption_lines = 1;
   m.scroll = scroll_;
   m.level = level_;
   m.speaking = speaking();
   m.color_test = false;
+  m.settings_hold = settings_hold_live();
 
   switch (phase_) {
     case Phase::NoNetwork:
@@ -1361,6 +1363,7 @@ void App::update_model() {
     m.headline = "Wi-Fi setup";
     m.detail = "Connect your phone";
     m.body = wifi_setup_text_;
+    m.qr = wifi_setup_qr_.ok() ? &wifi_setup_qr_ : nullptr;
     m.scroll = 0;
     m.hint = profile_.touch_screen ? "Swipe down to close" : profile_.cancel_label + " to close";
     if (ui_) ui_->render(m);

@@ -11,9 +11,13 @@ Hardware ports remain experimental until the [verification table](hardware-valid
 | [Waveshare ESP32-S3-LCD-1.54](hardware.md#waveshare-esp32-s3-lcd-154) | Hold BOOT to talk | Onboard microphones and speaker |
 | [Waveshare ESP32-S3-Touch-AMOLED-1.75](hardware.md#esp32-s3-touch-amoled-175) | Hold the screen to talk | Onboard microphones; speaker output |
 | [Waveshare ESP32-S3-Touch-AMOLED-1.75C](hardware.md#esp32-s3-touch-amoled-175c) | Hold the screen to talk | Onboard microphones and speaker |
+| [Waveshare ESP32-S3-Touch-AMOLED-1.8 (V2)](hardware.md#esp32-s3-touch-amoled-18) | Hold the screen to talk | Onboard analog microphone; speaker output |
+| [Waveshare ESP32-S3-Touch-LCD-1.85C V2](hardware.md#waveshare-esp32-s3-touch-lcd-185c-v2) | Hold the screen or BOOT to talk | Onboard microphones; speaker output, with a speaker in the speaker-box version |
+| [Xorigin AIPI Lite](hardware.md#xorigin-aipi-lite) | Hold BOOT to talk; the power key cancels | Onboard microphone and speaker |
 | [Espressif ESP32-S3-BOX-3](hardware.md#esp32-s3-box-3) | Hold the screen or BOOT to talk | Onboard microphones and speaker |
 | [M5Stack CoreS3](hardware.md#m5stack-cores3) | Hold the screen to talk | Onboard microphones and speaker; battery management |
 | [LilyGO T-Display-S3](hardware.md#lilygo-t-display-s3) | BOOT and Button2; send text through the USB console | No onboard microphone or speaker |
+| [Elecrow CrowPanel 2.1-inch HMI](hardware.md#elecrow-crowpanel-21-inch-hmi) | Touch screen and rotary knob; send text through the USB console | No onboard microphone or speaker |
 | [ESP32-S3 breadboard build](hardware.md#esp32-s3-breadboard) | Hold the wired TALK button | Wire the microphone and optional speaker |
 
 Check the exact model and connections in [Hardware and wiring](hardware.md), then follow [Set up a board](setup-board.md). The browser installer lists profiles included in the latest published release. Newly merged profiles may need a [source build](development.md) until the next release.

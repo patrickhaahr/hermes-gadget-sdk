@@ -5,8 +5,10 @@
 
 namespace hg {
 
+bool App::settings_hold_live() const { return !prompt_showing() && !ota_busy() && !wifi_setup_open(); }
+
 bool App::settings_title_hit(int x, int y) const {
-  return ui_ && !prompt_showing() && !ota_busy() && !wifi_setup_open() && ui_->title_hit(x, y);
+  return ui_ && settings_hold_live() && ui_->title_hit(x, y);
 }
 
 bool App::open_settings() {
@@ -242,6 +244,12 @@ bool App::start_wifi_setup() {
   settings_chord_fired_ = false;
   wake_buttons_ = 0;
   wifi_setup_text_ = on_wifi_setup();
+  // Encode the code once here: the model is rebuilt on every frame.
+  wifi_setup_qr_ = {};
+  if (on_wifi_setup_ap) {
+    const WifiSetupAp ap = on_wifi_setup_ap();
+    if (!ap.ssid.empty()) wifi_setup_qr_ = qr::encode(qr::payload(ap.ssid, ap.password));
+  }
   if (wifi_setup_text_.empty()) set_hint_flash("Wi-Fi setup unavailable; use USB");
   update_model();
   return !wifi_setup_text_.empty();
@@ -250,6 +258,7 @@ bool App::start_wifi_setup() {
 void App::close_wifi_setup() {
   if (wifi_setup_text_.empty()) return;
   wifi_setup_text_.clear();
+  wifi_setup_qr_ = {};
   if (on_wifi_setup_close) on_wifi_setup_close();
   update_model();
 }

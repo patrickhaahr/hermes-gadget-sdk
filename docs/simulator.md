@@ -63,7 +63,7 @@ A first session, start to finish:
 
 The simulated device registers two demo actions the agent can use: `led.set` (a virtual LED in the window) and `buzzer.beep`.
 
-The [device settings menu](using-gadget.md#device-settings-and-hardware-checks) runs in the native firmware core. On touch profiles, hold the device title bar to open it. You can also enter `settings` in the serial console. The desktop **Settings** dialog configures the simulator host; the device menu changes saved volume, brightness, and talk mode.
+The [device settings menu](using-gadget.md#device-settings-and-hardware-checks) runs in the native firmware core. On touch profiles, hold the device title bar to open it; on `sim-466x466-round`, hold the **SETTINGS** target under the status dot. You can also enter `settings` in the serial console. The desktop **Settings** dialog configures the simulator host; the device menu changes saved volume, brightness, and talk mode.
 
 State lives in `~/.hermes-gadget/sim/<name>/` (override with `--state-dir`):
 
@@ -83,7 +83,9 @@ Like a board, the simulated device takes firmware updates (`hermes gadget update
 | `sim-480x320` | 480×320 | Larger panel |
 | `sim-240x240` | 240×240 | The 1.54" LCD board: two buttons, no scroll buttons, so long replies page by themselves |
 | `sim-240x240-nospeaker` | 240×240 | No speaker, so replies stay text only |
+| `sim-360x360-round` | 360×360 round | The 1.85C V2 LCD touch board, with the same controls as `sim-466x466-round` |
 | `sim-466x466-round` | 466×466 round | The 1.75" AMOLED touch board: hold the mouse on the screen to talk, click to answer yes, drag down to cancel. No scroll buttons, so long replies page by themselves |
+| `sim-368x448` | 368×448 | The 1.8" rectangular AMOLED touch board: hold the mouse on the screen to talk, click to answer yes, drag down to cancel. No scroll buttons |
 
 Add a profile to `BOARDS` in `python/hermes_gadget/sim/runner.py` to mirror new hardware.
 

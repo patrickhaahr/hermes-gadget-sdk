@@ -409,6 +409,35 @@ def test_first_approved_device_becomes_the_home_channel(gadget, make_sim):
     assert len(gadget.saved_homes) == 1
 
 
+@pytest.mark.parametrize("target", ["explicit-device", "home-channel", "env-home-channel"])
+def test_cron_delivers_to_a_paired_gadget(gadget, make_sim, monkeypatch, target):
+    from cron import scheduler, scheduler_delivery, scheduler_preflight
+    from gateway import config as gateway_config
+    from gateway.config import GatewayConfig, Platform
+
+    sim = _paired_sim(gadget, make_sim, name="Desk")
+    device_id = sim.status()["device_id"]
+    config = GatewayConfig(platforms={Platform("gadget"): gadget.adapter.config})
+    monkeypatch.setattr(gateway_config, "load_gateway_config", lambda: config)
+    monkeypatch.setattr(scheduler, "load_config", lambda: {"cron": {"wrap_response": False}})
+    if target == "env-home-channel":
+        gadget.adapter.config.home_channel = None
+        monkeypatch.setenv("GADGET_HOME_CHANNEL", device_id)
+    elif target == "home-channel":
+        assert sim.wait_for(lambda: gadget.adapter.config.home_channel is not None, timeout=5)
+    job = {"id": "gadget-reminder", "name": "Reminder",
+           "deliver": f"gadget:{device_id}" if target == "explicit-device" else "gadget"}
+
+    assert scheduler_preflight._preflight_check_delivery(job) is None
+    targets = scheduler_delivery._resolve_delivery_targets(job)
+    assert [(t["platform"], t["chat_id"], t.get("thread_id")) for t in targets] == [
+        ("gadget", device_id, None)]
+    error = scheduler_delivery._deliver_result(
+        job, "Time to stretch", adapters={Platform("gadget"): gadget.adapter}, loop=gadget.loop)
+    assert error is None
+    assert sim.wait_for(lambda: (sim.last_received("reply") or {}).get("text") == "Time to stretch", timeout=10)
+
+
 def test_a_home_channel_set_in_the_profile_is_left_alone(gadget, make_sim):
     """GADGET_HOME_CHANNEL may live in a profile's own .env, which a multiplexed gateway keeps out of
     os.environ: the adapter reads it through the profile's secret scope."""
@@ -439,16 +468,34 @@ def _staging(monkeypatch, tmp_path):
     return ota.UpdateQueue(tmp_path / "plugin-data" / "gadget")
 
 
+def _staged_at_final_report(monkeypatch):
+    """What was still staged when the gateway reported "done" or "failed"."""
+    from hermes_gadget_plugin import ota
+
+    seen = {}
+    report = ota.UpdateQueue.report
+
+    def recording(self, device_id, **status):
+        if status.get("state") in ("done", "failed"):
+            seen[status["state"]] = self.pending()
+        report(self, device_id, **status)
+
+    monkeypatch.setattr(ota.UpdateQueue, "report", recording)
+    return seen
+
+
 def test_staged_firmware_is_installed_once_the_device_is_online(gadget, make_sim, monkeypatch, tmp_path):
     from fakes.fake_firmware import fake_image
     from hermes_gadget_plugin import ota
 
     queue = _staging(monkeypatch, tmp_path)
+    staged = _staged_at_final_report(monkeypatch)
     sim = _paired_sim(gadget, make_sim, name="Desk")
     device_id = sim.status()["device_id"]
     image = ota.inspect_image(fake_image(board=sim.board.name, version="0.2.0"))
     queue.stage(device_id, image)
     assert sim.wait_for(lambda: (queue.status(device_id) or {}).get("state") == "done", timeout=30)
+    assert staged["done"] == []  # whoever reads "done" finds nothing left to install
     assert queue.status(device_id)["version"] == "0.2.0"
     assert sim.update_image == image.data
     assert queue.pending() == []  # installed once, not again after the restart
@@ -463,10 +510,12 @@ def test_staged_firmware_the_device_refuses_is_dropped(gadget, make_sim, monkeyp
     from hermes_gadget_plugin import ota
 
     queue = _staging(monkeypatch, tmp_path)
+    staged = _staged_at_final_report(monkeypatch)
     sim = _paired_sim(gadget, make_sim, name="Desk")
     device_id = sim.status()["device_id"]
     queue.stage(device_id, ota.inspect_image(fake_image(board="esp32s3-breadboard")))
     assert sim.wait_for(lambda: (queue.status(device_id) or {}).get("state") == "failed", timeout=30)
+    assert staged["failed"] == []
     status = queue.status(device_id)
     assert status["code"] == "wrong_board" and "built for esp32s3-breadboard" in status["error"]
     assert queue.pending() == [] and sim.update_image is None

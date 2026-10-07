@@ -17,13 +17,16 @@
 
 #include "board.hpp"
 #include "axp2101.hpp"
+#include "band_flush.hpp"
 #include "cores3.hpp"
+#include "speaker_pa.hpp"
 #include "driver/i2c_master.h"
 #include "driver/i2s_std.h"
 #include "esp_codec_dev.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_lcd_panel_io.h"
+#include "esp_lcd_panel_rgb.h"
 #include "esp_lcd_io_i80.h"
 #include "esp_lcd_types.h"
 #include "esp_lcd_touch.h"
@@ -41,15 +44,18 @@ namespace hgp {
 // Events
 
 enum class EventType : uint8_t { NetUp, NetDown, WsOpen, WsText, WsBinary, WsClosed, Mic, Console, Touch, Key,
-                                 WifiStarted, WifiDisconnected, WifiProvision };
+                                 WifiStarted, WifiDisconnected, WifiProvision, Encoder };
 
-// Payloads of Touch and Key events (posted by the input task).
+// Payloads of Touch, Key and Encoder events (posted by the input task).
 struct TouchSample {
   bool touching;
   int16_t x, y;
 };
 struct KeySample {
   bool pressed;
+};
+struct EncoderSample {
+  int8_t direction;
 };
 
 struct ConsoleRequest {
@@ -113,6 +119,26 @@ class WsTransport final : public hg::Transport {
   uint8_t rx_opcode_ = 0;
 };
 
+// ESP-IDF RGB timing bus with ST7701 command initialization on 3-wire SPI.
+class RgbDisplay final : public hg::Display {
+ public:
+  bool begin(const LcdConfig& cfg, i2c_master_bus_handle_t bus);
+  hg::DisplayInfo info() const override;
+  uint16_t* framebuffer() override { return fb_; }
+  void flush(uint16_t y0, uint16_t y1) override;
+  void set_backlight(uint8_t percent) override;
+
+ private:
+  static bool on_color_done(esp_lcd_panel_handle_t panel, const esp_lcd_rgb_panel_event_data_t* edata, void* ctx);
+  LcdConfig cfg_{};
+  esp_lcd_panel_io_handle_t io_ = nullptr;
+  esp_lcd_panel_handle_t panel_ = nullptr;
+  i2c_master_dev_handle_t expander_ = nullptr;
+  uint16_t* fb_ = nullptr;
+  uint16_t* staging_ = nullptr;
+  SemaphoreHandle_t done_ = nullptr;
+};
+
 class SpiDisplay final : public hg::Display {
  public:
   bool begin(const LcdConfig& cfg, i2c_master_bus_handle_t bus);
@@ -131,8 +157,8 @@ class SpiDisplay final : public hg::Display {
   esp_lcd_panel_handle_t panel_ = nullptr;
   uint16_t* fb_ = nullptr;
   uint16_t* bounce_ = nullptr;  // DMA-capable staging rows
-  int bounce_rows_ = 0;
   SemaphoreHandle_t done_ = nullptr;
+  std::optional<hg::BandFlush> bands_;
 };
 
 // I2S MEMS microphone: a reader task posts 20 ms PCM16 chunks while capturing.
@@ -215,6 +241,9 @@ class AmoledDisplay final : public hg::Display {
   SemaphoreHandle_t done_ = nullptr;
 };
 
+// Pulses the board's TCA9554 reset lines before the display and touch start.
+bool tca9554_reset(i2c_master_bus_handle_t bus, const ExpanderResetConfig& reset);
+
 namespace i2c {
 // The board's shared I2C master bus (created on first use).
 i2c_master_bus_handle_t bus(const I2cBusConfig& cfg);
@@ -236,19 +265,21 @@ class CodecAudio {
 
 class CodecMic final : public hg::AudioIn {
  public:
-  bool begin(esp_codec_dev_handle_t dev);
+  bool begin(esp_codec_dev_handle_t dev, bool rmnm);
   bool start(uint32_t sample_rate) override;
   void stop() override { capturing_ = false; }
 
  private:
   static void task(void* arg);
   esp_codec_dev_handle_t dev_ = nullptr;
+  bool rmnm_ = false;
+  int16_t* raw_ = nullptr;
   std::atomic<bool> capturing_{false};
 };
 
 class CodecSpeaker final : public hg::AudioOut {
  public:
-  bool begin(esp_codec_dev_handle_t dev);
+  bool begin(esp_codec_dev_handle_t dev, bool stereo32, int pa);
   bool begin(uint32_t sample_rate) override;
   void write(const int16_t* samples, size_t count) override;
   void end() override;
@@ -259,18 +290,22 @@ class CodecSpeaker final : public hg::AudioOut {
  private:
   static void task(void* arg);
   esp_codec_dev_handle_t dev_ = nullptr;
+  bool stereo32_ = false;
+  int32_t* stereo_ = nullptr;
+  std::optional<hg::SpeakerPa> pa_;  // set when this speaker, not esp_codec_dev, drives the PA pin
   StreamBufferHandle_t buffer_ = nullptr;
   std::atomic<bool> open_{false};
   std::atomic<bool> draining_{false};
   std::atomic<bool> flush_{false};
 };
 
-// Polls a CST9217 touchscreen and a TCA9554-mirrored key on the I2C bus from
-// its own task (the controller needs a pause between write and read) and
-// posts Touch and Key events to the app task.
+// Polls a touchscreen, a key mirrored on an I/O expander and a rotary encoder
+// from its own task (some controllers need a pause between write and read) and
+// posts Touch, Key and Encoder events to the app task.
 class TouchInput {
  public:
-  bool begin(const TouchConfig& touch, const ExpanderKeyConfig& key, i2c_master_bus_handle_t bus);
+  bool begin(const TouchConfig& touch, const ExpanderKeyConfig& key, const EncoderConfig& encoder,
+             i2c_master_bus_handle_t bus);
   bool has_touch() const { return touch_dev_ != nullptr || managed_touch_ != nullptr; }
   bool has_key() const { return key_dev_ != nullptr; }
 
@@ -279,11 +314,16 @@ class TouchInput {
   bool read_touch(TouchSample& out);
   bool begin_box_touch(i2c_master_bus_handle_t bus);
   bool read_key(bool& pressed);
+  bool sample_encoder(int& direction);
   TouchConfig touch_{};
   ExpanderKeyConfig key_{};
   i2c_master_dev_handle_t touch_dev_ = nullptr;
   i2c_master_dev_handle_t key_dev_ = nullptr;
   esp_lcd_touch_handle_t managed_touch_ = nullptr;
+  gpio_num_t encoder_a_ = GPIO_NUM_NC;
+  gpio_num_t encoder_b_ = GPIO_NUM_NC;
+  uint8_t encoder_state_ = 0;
+  int8_t encoder_accumulator_ = 0;
 };
 
 class AxpPower final : public hg::Power {
@@ -376,6 +416,8 @@ class Wifi {
   void tick(hg::App& app, uint32_t now);
   std::string start_setup();
   void stop_setup();
+  // The temporary network's credentials, for the setup screen's QR code.
+  hg::WifiSetupAp setup_ap();
   void provision(const hg::WifiCredentials& credentials);
 
  private:

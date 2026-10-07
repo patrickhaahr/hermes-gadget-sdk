@@ -61,6 +61,13 @@ struct Action {
   std::function<bool(const json::Value& args, json::Value& result, std::string& error)> handler;
 };
 
+// The temporary Wi-Fi setup network, as the port knows it. Lets the setup
+// screen show a scannable code beside the credentials.
+struct WifiSetupAp {
+  std::string ssid;
+  std::string password;
+};
+
 class App {
  public:
   App(Hal& hal, DeviceProfile profile);
@@ -100,6 +107,9 @@ class App {
   // These run on the app task. Start returns private, on-screen instructions.
   std::function<std::string()> on_wifi_setup;
   std::function<void()> on_wifi_setup_close;
+  // Optional: the temporary network's name and password, so the setup screen can
+  // show a QR code. The port sets this only where it has the values.
+  std::function<WifiSetupAp()> on_wifi_setup_ap;
 
   // Serial-console command (provisioning, bench automation). Returns the
   // response; machine-readable lines start with '@'.
@@ -197,6 +207,8 @@ class App {
   void dismiss_overlay();
   // A question from Hermes is on screen (it waits while the user is recording).
   bool prompt_showing() const;
+  // Holding the title (or round settings target) would open or close settings.
+  bool settings_hold_live() const;
   // True when a press that started at `pressed_at` may answer the question.
   bool prompt_armed(uint32_t pressed_at) const;
   void answer_prompt(bool yes);
@@ -230,6 +242,8 @@ class App {
   HardwareCheck hardware_check_ = HardwareCheck::None;
   std::string check_result_;
   std::string wifi_setup_text_;
+  // The setup network's scannable code, encoded once when the screen opens.
+  qr::Code wifi_setup_qr_;
   bool talk_held_ = false;
   bool settings_chord_fired_ = false;
   uint32_t talk_down_at_ = 0;

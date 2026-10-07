@@ -49,6 +49,18 @@ https://components.espressif.com/components/waveshare/esp32_s3_touch_amoled_1_75
 released by Waveshare under the Apache License 2.0. A copy of that license is in
 LICENSES/Apache-2.0.txt.
 
+The CO5300 start-up commands for the rectangular 368x448 module (kInit368 in
+firmware/esp32/main/port_amoled.cpp) follow Waveshare's board support package
+for the ESP32-S3-Touch-AMOLED-1.8,
+https://github.com/waveshareteam/Waveshare-ESP32-components/tree/9f4030c6e5cb888ad4cc268bfa7584c93ad53e30/bsp/esp32_s3_touch_amoled_1_8,
+released by Waveshare under the Apache License 2.0. A copy of that license is in
+LICENSES/Apache-2.0.txt.
+
+The AIPI Lite pin map, panel settings and power wiring in
+firmware/esp32/main/board.cpp follow xiaozhi-esp32's xorigin/aipi-lite board,
+https://github.com/78/xiaozhi-esp32/tree/0d576d3d4c049c6f55eaf879725dc23e516511b4/main/boards/xorigin/aipi-lite,
+MIT License. Only these hardware facts are used.
+
 The BOX-3 panel initialization register values in
 firmware/esp32/main/panel_box3.hpp follow Espressif's ESP32-S3-BOX-3 BSP,
 https://github.com/espressif/esp-bsp/tree/master/bsp/esp-box-3,
@@ -63,9 +75,29 @@ Copyright 2026 Espressif Systems (Shanghai) CO LTD, Apache License 2.0.
 The adapter expresses the register payloads as C++ byte strings and uses
 zero-length sleep-out and display-on commands with explicit delays.
 
+The ST77916 initialization tables in firmware/esp32/main/panel_ws185.hpp
+follow Waveshare's ESP32-S3-Touch-LCD-1.85C factory demo,
+https://github.com/waveshareteam/ESP32-S3-Touch-LCD-1.85C,
+commit 8ead4a96bf3a278fc4ebd8ef4768657e17fa2880, Apache License 2.0.
+The default table's original driver header credits Copyright (c) 2023
+Espressif Systems (Shanghai) CO LTD. Modified for Hermes Gadget: C++ payload
+literals, active entries only, two named tables selected by the factory panel
+ID scheme. No vendor application, ESP-SR code or legacy I2C driver is copied.
+The managed esp_lcd_st77916 2.0.2 driver keeps its Apache License 2.0; source
+and binary packages include LICENSES/Apache-2.0.txt and matching notices.
+
+The CrowPanel 2.1 ST7701 initialization values in
+firmware/esp32/main/crowpanel_st7701_init.hpp, and the RGB timings, PCF8574
+power and reset sequence and pin map in port_rgb.cpp and board.cpp, follow
+Elecrow's RotaryScreen_2_1 Arduino example,
+https://github.com/Elecrow-RD/CrowPanel-2.1inch-HMI-ESP32-Rotary-Display-480-480-IPS-Round-Touch-Knob-Screen/tree/faf8ecf27ec1504b51de7dc4e15b2e7d7e87c79c/example/Arduino/RotaryScreen_2_1.
+That repository carries no license. Only these hardware facts are used,
+re-expressed for Espressif's esp_lcd_st7701 driver.
+
 The managed esp_lcd_ili9341, esp_lcd_touch, esp_lcd_touch_gt911,
-esp_lcd_touch_tt21100 and esp_lcd_touch_ft5x06 drivers are Espressif components
-under Apache License 2.0. CoreS3 audio uses esp_codec_dev's AW88298 driver.
+esp_lcd_touch_tt21100, esp_lcd_touch_ft5x06, esp_lcd_st7701 and
+esp_lcd_panel_io_additions drivers are Espressif components under Apache
+License 2.0. CoreS3 audio uses esp_codec_dev's AW88298 driver.
 They are fetched at build time. Binary release packages include the installed
 component and ESP-IDF license files alongside this notice.
 
@@ -77,3 +109,16 @@ The adapter uses ESP-IDF GPIO and panel APIs, bounds brightness to 16 levels,
 protects pulse timing, and uses explicit microsecond delays for backlight reset
 and startup. The panel command lengths are stored separately from their values.
 The full upstream license is in LICENSES/LilyGO-MIT.txt.
+
+The QR code encoder in firmware/core/third_party/qrcode/ is vendored from
+Richard Moore's QRCode library, https://github.com/ricmoo/QRCode,
+revision eafbde494979abc2445c363cc2602230bcbe299c,
+Copyright (c) 2017 Richard Moore and Copyright (c) 2017 Project Nayuki,
+MIT License. Major parts derive from Project Nayuki's QR Code generator,
+https://www.nayuki.io/page/qr-code-generator-library. The vendored copy is
+adapted for this project: the C99 variable-length arrays are replaced with
+fixed, bounded buffers so MSVC accepts the file; the "#pragma mark" lines are
+replaced with comments; an always-false comparison is removed; and two bounds
+checks are added (the bit writer no longer writes past its buffer, and a payload
+that overflows the chosen version is rejected instead of encoded incorrectly).
+The full upstream license is in LICENSES/QRCode-MIT.txt.

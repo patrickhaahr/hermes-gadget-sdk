@@ -13,6 +13,7 @@
 #include "hg/canvas.hpp"
 #include "hg/hal.hpp"
 #include "hg/mascot.hpp"
+#include "hg/qr.hpp"
 
 namespace hg {
 
@@ -50,6 +51,7 @@ struct UiModel {
   uint8_t level = 0;     // microphone level 0..100
   bool speaking = false;
   bool color_test = false;
+  bool settings_hold = true;  // round panels draw the settings target only while holding it works
   uint32_t frame = 0;    // animation frame, advanced by the app
   std::string hint;      // bottom bar
   std::string yes, no;   // answer buttons under the hero caption (Prompt screen)
@@ -57,11 +59,16 @@ struct UiModel {
   // instead of the header + text layout.
   bool hero = false;
   uint8_t caption_lines = 1;  // hero: lines the detail may wrap to (then "..")
+  // Wi-Fi setup: a scannable code for the temporary network, drawn centred in
+  // the content band. Null on every other screen. Borrowed, not owned: the app
+  // keeps the matrix so it is encoded once, not on every model update.
+  const qr::Code* qr = nullptr;
 };
 
 struct UiLayout {
   int scale = 1;  // base text scale
   int top_h = 0, header_h = 0, bottom_h = 0;
+  int title_w = 0;  // width of the settings hold target in the top band
   int body_cols = 0, body_rows = 0;
   int main_y = 0, main_h = 0;  // area between the bars (used for images)
   int hero_cols = 0;  // characters per hero caption line
@@ -85,13 +92,15 @@ class Ui {
   // Body text rows visible on a text screen for this model (after detail lines).
   int body_rows(const UiModel& m) const;
   bool title_hit(int x, int y) const {
-    return x >= ox_ && x < ox_ + info_.width && y >= oy_ && y < oy_ + layout_.top_h;
+    const int left = ox_ + (info_.width - layout_.title_w) / 2;
+    return x >= left && x < left + layout_.title_w && y >= oy_ && y < oy_ + layout_.top_h;
   }
 
  private:
   void draw_top(Canvas& c, const UiModel& m);
   void draw_header(Canvas& c, const UiModel& m);
   void draw_content(Canvas& c, const UiModel& m);
+  bool draw_qr(Canvas& c, const UiModel& m, int y0, int y1);
   void draw_bottom(Canvas& c, const UiModel& m);
   void draw_indicator(Canvas& c, const UiModel& m, int cx, int cy, int r);
   struct HeroGeom {

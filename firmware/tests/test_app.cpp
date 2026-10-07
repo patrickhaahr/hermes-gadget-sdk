@@ -8,6 +8,7 @@
 #include "hg/app.hpp"
 #include "hg/crypto.hpp"
 #include "hg/protocol.hpp"
+#include "hg/qr.hpp"
 #include "hg/setup.hpp"
 #include "hg/touch.hpp"
 
@@ -1065,6 +1066,127 @@ TEST("settings: title hold and menu swipe work without starting a recording") {
   CHECK(r.app.screen() == hg::Screen::Ready);
 }
 
+// The settings target of a round panel: where the UI square sits, and the hold target inside it.
+struct RoundTarget {
+  int diameter, left, top, width, height;
+};
+constexpr RoundTarget kRound360{360, 120, 53, 120, 36};
+constexpr RoundTarget kRound466{466, 112, 68, 240, 36};
+
+static void check_round_target_gestures(const RoundTarget& t) {
+  Rig r(Rig::touch_profile());
+  r.fake.make_round(t.diameter);
+  r.bring_online(true);
+  const int right = t.left + t.width - 1, bottom = t.top + t.height - 1, cx = t.left + t.width / 2;
+  CHECK(r.app.settings_title_hit(t.left, t.top));
+  CHECK(r.app.settings_title_hit(right, bottom));
+  CHECK(!r.app.settings_title_hit(t.left - 1, t.top + 1));
+  CHECK(!r.app.settings_title_hit(right + 1, t.top + 1));
+  CHECK(!r.app.settings_title_hit(cx, t.top - 1));
+  CHECK(!r.app.settings_title_hit(cx, bottom + 1));
+  hg::TouchGestures touch(r.app);
+  // Holding the target opens settings without ever starting the microphone.
+  touch.update(true, cx, t.top + 10, r.fake.clock);
+  r.advance(200);
+  touch.tick(r.fake.clock);
+  CHECK(!r.fake.mic_on);
+  r.advance(900);
+  touch.tick(r.fake.clock);
+  touch.update(false, 0, 0, r.fake.clock);
+  CHECK(r.app.settings_open());
+  CHECK(!r.fake.mic_on);
+  // And closes it again.
+  touch.update(true, cx, t.top + 10, r.fake.clock);
+  r.advance(1100);
+  touch.tick(r.fake.clock);
+  touch.update(false, 0, 0, r.fake.clock);
+  CHECK(!r.app.settings_open());
+  // Just outside the target is still hold-to-talk.
+  touch.update(true, right + 1, t.top + 10, r.fake.clock);
+  r.advance(200);
+  touch.tick(r.fake.clock);
+  CHECK(r.fake.mic_on);
+  r.app.console("cancel");
+  touch.update(false, 0, 0, r.fake.clock);
+  CHECK(!r.app.settings_open());
+}
+
+static void check_round_header_label(const RoundTarget& t) {
+  FakeHal display;
+  display.make_round(t.diameter);
+  hg::Ui ui(display);
+  hg::UiModel m;
+  m.screen = hg::Screen::Ready;
+  m.link = hg::Link::Online;
+  ui.render(m);
+  const auto top = [&]() {
+    return std::vector<uint16_t>(display.fb.begin() + t.top * t.diameter,
+                                 display.fb.begin() + (t.top + t.height) * t.diameter);
+  };
+  const auto ready = top();
+  m.screen = hg::Screen::Settings;
+  ui.render(m);
+  CHECK(top() != ready);
+  m.screen = hg::Screen::Ready;
+  ui.render(m);
+  CHECK(top() == ready);
+}
+
+TEST("settings: round 360 target holds without recording and leaves TALK outside it") {
+  check_round_target_gestures(kRound360);
+}
+
+TEST("settings: round 466 target holds without recording and leaves TALK outside it") {
+  check_round_target_gestures(kRound466);
+}
+
+TEST("settings: round header redraws its return label and restores settings label") {
+  check_round_header_label(kRound360);
+  check_round_header_label(kRound466);
+}
+
+TEST("settings: round target is drawn only while the hold works") {
+  Rig r(Rig::touch_profile());
+  r.fake.make_round(466);
+  r.bring_online(true);
+  const auto band = [&] {
+    return std::vector<uint16_t>(r.fake.fb.begin() + kRound466.top * 466,
+                                 r.fake.fb.begin() + (kRound466.top + kRound466.height) * 466);
+  };
+  const auto shown = band();
+  r.server(R"({"type":"turn.start","turn":"t"})");
+  r.server(R"({"type":"prompt","id":"q1","text":"Continue?"})");
+  CHECK(r.app.screen() == hg::Screen::Prompt);
+  CHECK(band() != shown);  // the label is hidden while a hold would do nothing
+  r.advance(700);
+  r.app.on_button(hg::Button::Talk, true);
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.app.screen() == hg::Screen::Thinking);
+  CHECK(band() == shown);
+}
+
+TEST("settings: rectangular boards keep the full-width title strip and their header") {
+  Rig r(Rig::touch_profile());  // 320x240: scale 2, so the strip is 22 px tall
+  r.bring_online(true);
+  CHECK(r.app.settings_title_hit(0, 0));
+  CHECK(r.app.settings_title_hit(319, 21));
+  CHECK(!r.app.settings_title_hit(319, 22));
+  CHECK(!r.app.settings_title_hit(160, 22));
+  FakeHal display;
+  hg::Ui ui(display);
+  hg::UiModel m;
+  m.screen = hg::Screen::Ready;
+  m.link = hg::Link::Online;
+  ui.render(m);
+  const auto top = [&]() {
+    return std::vector<uint16_t>(display.fb.begin(), display.fb.begin() + 22 * 320);
+  };
+  const auto ready = top();
+  m.screen = hg::Screen::Settings;
+  ui.render(m);
+  CHECK(top() == ready);  // no BACK TO HERMES label on a rectangular header
+}
+
 TEST("power: idle screen dims, sleeps and consumes the wake input without recording") {
   Rig r;
   r.fake.backlight = true;
@@ -1253,6 +1375,105 @@ TEST("Wi-Fi setup: private instructions stay out of diagnostics and prompts clos
   CHECK(!r.app.wifi_setup_open());
   CHECK(r.app.screen() == hg::Screen::Prompt);
   CHECK(!r.app.start_wifi_setup());
+}
+
+TEST("Wi-Fi setup: the screen carries a scannable code for the temporary network") {
+  Rig r(Rig::touch_profile());
+  r.bring_online(true);
+  r.app.on_wifi_setup = [] { return "Network: Hermes-test\nPassword: private-setup-key"; };
+  r.app.on_wifi_setup_ap = [] {
+    hg::WifiSetupAp ap;
+    ap.ssid = "Hermes-test";
+    ap.password = "private-setup-key";
+    return ap;
+  };
+  CHECK(r.app.start_wifi_setup());
+  CHECK(r.app.screen() == hg::Screen::Setup);
+  const hg::qr::Code* code = r.app.model().qr;
+  CHECK(code != nullptr && code->ok());
+  // The code encodes exactly the credentials the screen prints.
+  if (code) {
+    CHECK_EQ(code->size, hg::qr::encode(hg::qr::payload("Hermes-test", "private-setup-key")).size);
+  }
+  // The credentials still reach neither diagnostics nor status.
+  CHECK(r.app.console("diag").find("private-setup-key") == std::string::npos);
+  CHECK(r.app.status_json().find("private-setup-key") == std::string::npos);
+  // Closing the screen drops the code.
+  r.app.close_wifi_setup();
+  CHECK(r.app.model().qr == nullptr);
+}
+
+TEST("Wi-Fi setup: a port without credentials still shows the text screen") {
+  Rig r(Rig::touch_profile());
+  r.bring_online(true);
+  r.app.on_wifi_setup = [] { return "Temporary setup network"; };
+  // No on_wifi_setup_ap: the text screen must still work, just without a code.
+  CHECK(r.app.start_wifi_setup());
+  CHECK(r.app.screen() == hg::Screen::Setup);
+  CHECK(r.app.model().qr == nullptr);
+  CHECK(r.app.model().body.find("Temporary setup network") != std::string::npos);
+}
+
+TEST("Wi-Fi setup: the code is drawn inside the content band, dark on light") {
+  Rig r(Rig::touch_profile());
+  r.fake.make_round(466);
+  r.bring_online(true);
+  r.app.on_wifi_setup = [] { return "Network: Hermes-test\nPassword: private-setup-key"; };
+  r.app.on_wifi_setup_ap = [] {
+    hg::WifiSetupAp ap;
+    ap.ssid = "Hermes-test";
+    ap.password = "private-setup-key";
+    return ap;
+  };
+  CHECK(r.app.start_wifi_setup());
+  r.advance(200);
+  const hg::qr::Code* code = r.app.model().qr;
+  CHECK(code != nullptr);
+  if (!code) return;
+  // The code is drawn: count pure-black and pure-white pixels. The renderer
+  // draws modules as black on a white panel, which a camera needs.
+  int black = 0, white = 0;
+  for (int y = 0; y < 466; ++y) {
+    for (int x = 0; x < 466; ++x) {
+      uint16_t p = r.fake.fb[static_cast<size_t>(y * 466 + x)];
+      if (p == 0x0000) ++black;
+      if (p == 0xFFFF) ++white;
+    }
+  }
+  CHECK(black > 100);        // the modules
+  CHECK(white > black / 2);  // the panel and quiet zone around them
+}
+
+// The setup screen as the ESP32 port fills it, rendered with or without a code.
+static std::vector<uint16_t> setup_screen(int width, int height, bool round, const hg::qr::Code* code) {
+  FakeHal display;
+  if (round) {
+    display.make_round(width);
+  } else {
+    display.width = width;
+    display.height = height;
+    display.fb.assign(static_cast<size_t>(width * height), 0);
+  }
+  hg::Ui ui(display);
+  hg::UiModel m;
+  m.screen = hg::Screen::Setup;
+  m.headline = "Wi-Fi setup";
+  m.detail = "Connect your phone";
+  m.body = "Network: Hermes-A1B2\nPassword: 3f9c2a1b4d5e6f70\nOpen http://192.168.4.1\nAvailable for 10 minutes.";
+  m.qr = code;
+  ui.render(m);
+  return display.fb;
+}
+
+TEST("Wi-Fi setup: a code that does not fit beside the instructions leaves the text screen") {
+  const hg::qr::Code code = hg::qr::encode(hg::qr::payload("Hermes-A1B2", "3f9c2a1b4d5e6f70"));
+  // 128x128 (AIPI Lite) and 320x240 (BOX-3, CoreS3): the instructions take the room
+  // a scannable code needs, so the screen is the text one, pixel for pixel.
+  CHECK(setup_screen(128, 128, false, &code) == setup_screen(128, 128, false, nullptr));
+  CHECK(setup_screen(320, 240, false, &code) == setup_screen(320, 240, false, nullptr));
+  // 240x240 and the 466 round panel fit the code beside every instruction line.
+  CHECK(setup_screen(240, 240, false, &code) != setup_screen(240, 240, false, nullptr));
+  CHECK(setup_screen(466, 466, true, &code) != setup_screen(466, 466, true, nullptr));
 }
 
 TEST("Wi-Fi setup: opening from USB releases an active talk button") {

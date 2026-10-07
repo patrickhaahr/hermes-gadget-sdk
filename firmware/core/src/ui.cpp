@@ -151,8 +151,13 @@ Ui::Ui(Display& display) : display_(display), panel_(display.info()), info_(pane
   int w = info_.width, h = info_.height;
   int s = std::max(1, std::min(4, std::min(w / 160, h / 120)));
   layout_.scale = s;
-  layout_.top_h = Canvas::line_height(s) + 2 * s;
-  layout_.bottom_h = layout_.top_h;
+  const int bar_h = Canvas::line_height(s) + 2 * s;
+  // A round panel's top band holds the link dot and one line of the settings
+  // label: 2r + 14s, and never under 36 px so the hold target stays finger-sized.
+  const int dot_r = std::max(2, 3 * s / 2 + 1);
+  layout_.top_h = panel_.round ? std::max(36, 2 * dot_r + 14 * s) : bar_h;
+  layout_.bottom_h = bar_h;
+  layout_.title_w = panel_.round ? std::min(w, 120 * s) : w;
   layout_.header_h = Canvas::line_height(s + 1) + 4 * s;
   layout_.main_y = layout_.top_h;
   layout_.main_h = h - layout_.top_h - layout_.bottom_h;
@@ -190,7 +195,7 @@ void Ui::render(const UiModel& m) {
   const int y_bottom = h - layout_.bottom_h;
 
   uint32_t hashes[4];
-  hashes[0] = Hash().add(m.title).val(m.link).get();
+  hashes[0] = Hash().add(m.title).val(m.link).val(panel_.round && m.screen == Screen::Settings).val(panel_.round && m.settings_hold).get();
   hashes[1] = Hash()
                   .val(m.screen)
                   .add(m.headline)
@@ -198,7 +203,9 @@ void Ui::render(const UiModel& m) {
                   .val(m.screen == Screen::Listening ? m.level : uint8_t(0))
                   .val(m.speaking)
                   .get();
-  hashes[2] = Hash().val(m.screen).add(m.detail).add(m.body).add(m.code).val(m.scroll).val(m.color_test).get();
+  hashes[2] = Hash().val(m.screen).add(m.detail).add(m.body).add(m.code).val(m.scroll).val(m.color_test)
+                  .val(m.qr ? m.qr->size : 0)
+                  .get();
   hashes[3] = Hash().add(m.hint).get();
 
   if (m.hero) {
@@ -273,18 +280,24 @@ void Ui::draw_top(Canvas& c, const UiModel& m) {
   }
   int ty = s;
   if (panel_.round) {
-    // A round face stays quiet: just the link dot, centred, like a watch's status mark.
+    // The settings hold target: a dim label under the link dot, with no bar
+    // behind it. The label line (2r + 4s .. 2r + 13s) fits the band.
     int r = std::max(2, 3 * s / 2 + 1);
-    c.fill_circle(w / 2, layout_.top_h / 2, r, dot);
+    if (m.settings_hold) {
+      const char* control = m.screen == Screen::Settings ? "BACK TO HERMES" : "SETTINGS";
+      c.text((w - Canvas::text_width(control, s)) / 2, 2 * r + 4 * s, control, s, kDim);
+    }
+    c.fill_circle(w / 2, s + r, r, dot);
     return;
   }
+  const int pad = 3 * s + panel_.corner_inset;
   int label_w = Canvas::text_width(label, s);
-  int label_x = w - 3 * s - label_w;
+  int label_x = w - pad - label_w;
   c.text(label_x, ty, label, s, kDim);
   int r = std::max(2, 3 * s / 2 + 1);
   c.fill_circle(label_x - 3 * s - r, layout_.top_h / 2, r, dot);
-  int title_cols = cols_for(label_x - 6 * s - 2 * r - 3 * s, s);
-  c.text(3 * s, ty, fit(m.title, title_cols), s, kText);
+  int title_cols = cols_for(label_x - 6 * s - 2 * r - pad, s);
+  c.text(pad, ty, fit(m.title, title_cols), s, kText);
 }
 
 void Ui::draw_indicator(Canvas& c, const UiModel& m, int cx, int cy, int r) {
@@ -409,6 +422,8 @@ void Ui::draw_content(Canvas& c, const UiModel& m) {
     return;
   }
 
+  if (m.qr && m.qr->ok() && draw_qr(c, m, y0, y1)) return;
+
   if (m.screen == Screen::Boot) {
     int big = s + 2;
     const char* name = "HERMES";
@@ -452,6 +467,52 @@ void Ui::draw_content(Canvas& c, const UiModel& m) {
     c.fill_rect(w - 2 * s, track_y, s, track_h, kFaint);
     c.fill_rect(w - 2 * s, thumb_y, s, thumb_h, kDim);
   }
+}
+
+// A Wi-Fi setup code: a white panel with a four-module quiet zone, one square
+// per module, at the largest integer scale that fits the content band. A phone
+// camera needs the quiet zone and dark-on-light contrast, so neither is optional.
+// Returns false, drawing nothing, when the code does not fit beside the text.
+bool Ui::draw_qr(Canvas& c, const UiModel& m, int y0, int y1) {
+  const int n = m.qr->size;
+  const int w = info_.width;
+  const int s = layout_.scale;
+  const int lh = Canvas::line_height(s);
+  const int margin = 4 * s;
+  const int pad = 4;                     // quiet zone, in modules
+  const int cells = n + 2 * pad;         // the code plus its quiet zone
+  const int avail_h = y1 - y0 - 2 * margin;
+
+  // The code only joins the network: the phone still needs the address, and a
+  // phone that cannot scan needs the name and password. So every line of the
+  // instructions stays on screen, and the code is shown only where it fits
+  // beside them at kMinScale or larger, below which it is not reliably
+  // scannable. Otherwise the caller draws the text-only screen.
+  constexpr int kMinScale = 3;
+  const std::vector<std::string> lines = wrap_text(m.body, layout_.body_cols);
+  const int text_rows = static_cast<int>(lines.size());
+  const int reserve = text_rows ? text_rows * lh + 2 * s : 0;
+  const int scale = std::min((w - 2 * margin) / cells, (avail_h - reserve) / cells);
+  if (scale < kMinScale) return false;
+
+  const int side = cells * scale;
+  const int x0 = (w - side) / 2;
+  const int block = side + reserve;
+  const int py0 = y0 + margin + std::max(0, (avail_h - block) / 2);
+  c.fill_rect(x0, py0, side, side, rgb565(255, 255, 255));
+  for (int y = 0; y < n; ++y) {
+    for (int x = 0; x < n; ++x) {
+      if (m.qr->at(x, y)) {
+        c.fill_rect(x0 + (x + pad) * scale, py0 + (y + pad) * scale, scale, scale, rgb565(0, 0, 0));
+      }
+    }
+  }
+  int ty = py0 + side + 2 * s;
+  for (int i = 0; i < text_rows; ++i) {
+    c.text((w - Canvas::text_width(lines[static_cast<size_t>(i)], s)) / 2, ty, lines[static_cast<size_t>(i)], s, kDim);
+    ty += lh;
+  }
+  return true;
 }
 
 Ui::HeroGeom Ui::hero_geom(const UiModel& m) const {

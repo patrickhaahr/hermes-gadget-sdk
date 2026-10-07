@@ -136,6 +136,17 @@ std::string Wifi::start_setup() {
          "\nOpen http://192.168.4.1\nAvailable for 10 minutes.";
 }
 
+// The temporary network's credentials. Returns empty fields when setup is not
+// running, so the setup screen simply shows no code.
+hg::WifiSetupAp Wifi::setup_ap() {
+  std::lock_guard<std::mutex> lock(setup_mutex_);
+  hg::WifiSetupAp ap;
+  if (!accepting_setup_) return ap;
+  ap.ssid = ap_name_;
+  ap.password = ap_password_;
+  return ap;
+}
+
 void Wifi::stop_setup() {
   {
     std::lock_guard<std::mutex> lock(setup_mutex_);
