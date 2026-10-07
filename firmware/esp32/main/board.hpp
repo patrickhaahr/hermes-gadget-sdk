@@ -18,7 +18,7 @@ struct LcdBus {
   int pclk_mhz = 16;
 };
 
-enum class LcdController { St7789, Box3, CoreS3 };
+enum class LcdController { St7789, Box3, CoreS3, St77916 };
 
 struct LcdConfig {
   bool enabled = false;
@@ -30,6 +30,9 @@ struct LcdConfig {
   LcdBus bus{};
   LcdController controller = LcdController::St7789;
   bool reset_active_high = false;
+  bool backlight_invert = false;  // active-low GPIO backlight, independent of pixel inversion
+  int d1 = -1, d2 = -1, d3 = -1;  // QSPI data0 uses mosi
+  bool round = false;
 };
 
 struct I2sMicConfig {
@@ -42,12 +45,7 @@ struct I2sSpeakerConfig {
   int bclk = -1, ws = -1, dout = -1;
 };
 
-// Which vendor bring-up table a CO5300 panel needs. The round 466x466 1.75"
-// modules write extra page-2 registers; the rectangular 368x448 1.8" modules use
-// the shorter table from Waveshare's own board example.
-enum class AmoledPanel { Co5300_466, Co5300_368 };
-
-// QSPI AMOLED with a CO5300 controller (round 466x466 or rectangular 368x448).
+// QSPI AMOLED with a CO5300 controller (round 466x466 panels).
 struct AmoledConfig {
   bool enabled = false;
   uint16_t width = 466, height = 466;
@@ -55,7 +53,6 @@ struct AmoledConfig {
   int gap_x = 0, gap_y = 0;  // the controller's RAM is wider than the glass
   int qspi_mhz = 40;
   bool round = false;
-  AmoledPanel panel = AmoledPanel::Co5300_466;
 };
 
 struct I2cBusConfig {
@@ -63,14 +60,9 @@ struct I2cBusConfig {
   uint32_t hz = 400000;
 };
 
-// ES8311/AW88298 (speaker) and the microphone ADC, sharing one duplex I2S bus,
+// ES8311/AW88298 (speaker) and ES7210 (microphone ADC) sharing one duplex I2S bus,
 // controlled over the I2C bus.
 enum class SpeakerCodec { Es8311, Aw88298 };
-
-// The microphone front end: an ES7210 digital ADC for MEMS microphones, or the
-// ES8311's own ADC for a board that wires an analog electret mic to the speaker
-// codec (the 1.8" AMOLED module does the latter).
-enum class MicCodec { Es7210, Es8311 };
 
 struct CodecAudioConfig {
   bool enabled = false;
@@ -79,11 +71,15 @@ struct CodecAudioConfig {
   float amp_supply_v = 5.0f;  // amplifier supply; the ES8311 driver sets its output level from it
   float mic_gain_db = 24.0f;
   SpeakerCodec speaker = SpeakerCodec::Es8311;
-  MicCodec mic = MicCodec::Es7210;
+  bool stereo32 = false;      // two 32-bit I2S slots per frame instead of one 16-bit slot
+  bool rmnm_mics = false;     // the ES7210 sends four 16-bit channels R M N M; average the M slots (ws185.hpp)
+  bool speaker_pa = false;    // CodecSpeaker drives `pa`, not esp_codec_dev (see CodecAudio::begin)
+  bool dac_mclk = true;       // false: the ES8311 derives its clock from BCLK
+  uint8_t es7210_mics = 0x03;  // ES7210_SEL_MIC1 | ES7210_SEL_MIC2
 };
 
 // Capacitive touch on the I2C bus: hold to talk, tap, swipe down to cancel.
-enum class TouchController { Cst9217, Box3, Ft5x06, Cst820 };
+enum class TouchController { Cst9217, Box3, Ft5x06, Cst816 };
 
 struct TouchConfig {
   bool enabled = false;
@@ -103,16 +99,15 @@ struct ExpanderKeyConfig {
   bool active_high = true;
 };
 
-struct ButtonConfig {
-  int talk = -1, cancel = -1, up = -1, down = -1;  // active-low GPIOs, -1 = absent
+// Reset lines on a TCA9554 I/O expander, pulsed before the display and touch
+// start. Only the bits in `mask` change.
+struct ExpanderResetConfig {
+  uint8_t addr = 0x20;
+  uint8_t mask = 0;  // 0 = no expander resets
 };
 
-// Boards whose display and touch controllers are held in reset by a TCA9554 I/O
-// expander instead of direct GPIOs (LCD_RST, the DSI power rail and TOUCH_RST sit
-// on its output bits). The sequence runs once, before the display is initialised.
-struct ExpanderResetConfig {
-  bool enabled = false;
-  uint8_t addr = 0x20;
+struct ButtonConfig {
+  int talk = -1, cancel = -1, up = -1, down = -1;  // active-low GPIOs, -1 = absent
 };
 
 // A battery behind a resistive divider, with a latch that keeps it powered.

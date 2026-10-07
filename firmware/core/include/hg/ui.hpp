@@ -50,6 +50,7 @@ struct UiModel {
   uint8_t level = 0;     // microphone level 0..100
   bool speaking = false;
   bool color_test = false;
+  bool settings_hold = true;  // round panels draw the settings target only while holding it works
   uint32_t frame = 0;    // animation frame, advanced by the app
   std::string hint;      // bottom bar
   std::string yes, no;   // answer buttons under the hero caption (Prompt screen)
@@ -62,6 +63,7 @@ struct UiModel {
 struct UiLayout {
   int scale = 1;  // base text scale
   int top_h = 0, header_h = 0, bottom_h = 0;
+  int title_w = 0;  // width of the settings hold target in the top band
   int body_cols = 0, body_rows = 0;
   int main_y = 0, main_h = 0;  // area between the bars (used for images)
   int hero_cols = 0;  // characters per hero caption line
@@ -85,7 +87,8 @@ class Ui {
   // Body text rows visible on a text screen for this model (after detail lines).
   int body_rows(const UiModel& m) const;
   bool title_hit(int x, int y) const {
-    return x >= ox_ && x < ox_ + info_.width && y >= oy_ && y < oy_ + layout_.top_h;
+    const int left = ox_ + (info_.width - layout_.title_w) / 2;
+    return x >= left && x < left + layout_.title_w && y >= oy_ && y < oy_ + layout_.top_h;
   }
 
  private:

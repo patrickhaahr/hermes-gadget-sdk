@@ -14,12 +14,12 @@ namespace {
 #define HG_BOARD_NAME "esp32s3-touch-amoled-1.75"
 #elif CONFIG_HG_BOARD_AMOLED_175C
 #define HG_BOARD_NAME "esp32s3-touch-amoled-1.75c"
-#elif CONFIG_HG_BOARD_AMOLED_18
-#define HG_BOARD_NAME "esp32s3-touch-amoled-18"
 #elif CONFIG_HG_BOARD_BOX3
 #define HG_BOARD_NAME "esp32-s3-box-3"
 #elif CONFIG_HG_BOARD_CORES3
 #define HG_BOARD_NAME "m5stack-cores3"
+#elif CONFIG_HG_BOARD_WS_ESP32S3_TOUCH_LCD_185C_V2
+#define HG_BOARD_NAME "waveshare-esp32-s3-touch-lcd-1.85c-v2"
 #elif CONFIG_HG_BOARD_T_DISPLAY_S3
 #define HG_BOARD_NAME "tdisplay-s3"
 #elif CONFIG_HG_BOARD_WS_ESP32S3_LCD_154
@@ -101,47 +101,44 @@ BoardConfig make() {
 #endif
   return b;
 }
-#elif CONFIG_HG_BOARD_AMOLED_18
-// Waveshare ESP32-S3-Touch-AMOLED-1.8 (V2): rectangular 368x448 AMOLED (CO5300,
-// QSPI), CST820 touch, an ES8311 codec with an analog electret microphone,
-// AXP2101 PMIC and a TCA9554 expander that drives the display/touch resets.
-// Pins: docs/hardware.md#esp32-s3-touch-amoled-18
+#elif CONFIG_HG_BOARD_WS_ESP32S3_TOUCH_LCD_185C_V2
+// Rev2.0 only. Pins and RMNM audio packing: Waveshare factory demo and V2
+// schematic, pinned sources in docs/hardware.md. Not compatible with V1.
 BoardConfig make() {
   BoardConfig b{};
   b.name = kBoardName;
-  b.amoled.enabled = true;
-  b.amoled.width = 368;
-  b.amoled.height = 432;    // inset the UI from the rounded corners (448 glass − 16)
-  b.amoled.cs = 12;
-  b.amoled.sclk = 11;
-  b.amoled.d0 = 4;
-  b.amoled.d1 = 5;
-  b.amoled.d2 = 6;
-  b.amoled.d3 = 7;
-  b.amoled.rst = -1;       // reset comes from the TCA9554 (LCD_RST, bit 0)
-  b.amoled.gap_x = 16;      // the 384-wide controller RAM holds the 368-wide glass
-  b.amoled.gap_y = 8;       // center the 448-tall glass in the 480-tall controller RAM
-  b.amoled.round = false;   // rectangular panel
-  b.amoled.panel = AmoledPanel::Co5300_368;
-  b.i2c = {15, 14, 400000};
+  b.lcd.enabled = true;
+  b.lcd.controller = LcdController::St77916;
+  b.lcd.width = b.lcd.height = 360;
+  b.lcd.swap_xy = b.lcd.mirror_x = b.lcd.mirror_y = false;
+  b.lcd.round = true;
+  b.lcd.sclk = 40;
+  b.lcd.mosi = 46;
+  b.lcd.d1 = 45;
+  b.lcd.d2 = 42;
+  b.lcd.d3 = 41;
+  b.lcd.cs = 21;
+  b.lcd.backlight = 5;
+  b.lcd.spi_mhz = 80;
+  b.i2c = {11, 10, 400000};
+  b.expander_reset.mask = 0x03;  // P0 touch reset, P1 LCD reset (EXIO1/EXIO2 in the demo)
   b.codec.enabled = true;
-  b.codec.mclk = 16;
-  b.codec.bclk = 9;
-  b.codec.ws = 45;
-  b.codec.dout = 8;
-  b.codec.din = 10;
-  b.codec.pa = 46;
-  b.codec.mic = MicCodec::Es8311;  // analog electret microphone into the ES8311 ADC
+  b.codec.mclk = 2;
+  b.codec.bclk = 48;
+  b.codec.ws = 38;
+  b.codec.dout = 47;
+  b.codec.din = 39;
+  b.codec.pa = 15;
+  b.codec.stereo32 = true;
+  b.codec.rmnm_mics = true;
+  b.codec.speaker_pa = true;
+  b.codec.dac_mclk = false;     // the factory demo clocks the ES8311 from BCLK
+  b.codec.es7210_mics = 0x0f;   // MIC1 playback reference, MIC2/MIC4 microphones
   b.touch.enabled = true;
-  b.touch.controller = TouchController::Cst820;
+  b.touch.controller = TouchController::Cst816;
   b.touch.addr = 0x15;
-  b.touch.rst = -1;        // reset comes from the TCA9554 (TOUCH_RST, bit 2)
-  b.touch.width = 368;
-  b.touch.height = 448;
-  b.pwr_key = {};          // this model's expander only drives the display/touch resets
-  b.axp2101 = true;
-  b.expander_reset = {true, 0x20};
-  b.buttons = {0, -1, -1, -1};  // BOOT also works as TALK
+  b.touch.width = b.touch.height = 360;
+  b.buttons = {0, -1, -1, -1};
   b.talk_label = "BOOT";
   b.cancel_label = "Swipe down";
   return b;
