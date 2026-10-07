@@ -111,7 +111,7 @@ bool AmoledDisplay::begin(const AmoledConfig& cfg) {
   bus.data7_io_num = -1;
   bus.max_transfer_sz = cfg.width * kBounceRows * 2 + 16;
   bus.flags = SPICOMMON_BUSFLAG_QUAD;
-  ESP_ERROR_CHECK(spi_bus_initialize(kHost, &bus, SPI_DMA_CH_AUTO));
+  if (!esp_ok(spi_bus_initialize(kHost, &bus, SPI_DMA_CH_AUTO), TAG, "spi_bus_initialize")) return false;
 
   esp_lcd_panel_io_spi_config_t io_cfg = {};
   io_cfg.cs_gpio_num = static_cast<gpio_num_t>(cfg.cs);
@@ -124,7 +124,7 @@ bool AmoledDisplay::begin(const AmoledConfig& cfg) {
   io_cfg.flags.quad_mode = 1;
   io_cfg.on_color_trans_done = &AmoledDisplay::on_trans_done;
   io_cfg.user_ctx = this;
-  ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(static_cast<esp_lcd_spi_bus_handle_t>(kHost), &io_cfg, &io_));
+  if (!esp_ok(esp_lcd_new_panel_io_spi(static_cast<esp_lcd_spi_bus_handle_t>(kHost), &io_cfg, &io_), TAG, "esp_lcd_new_panel_io_spi")) return false;
 
   if (cfg.rst >= 0) {
     gpio_config_t rst = {};
@@ -146,6 +146,24 @@ bool AmoledDisplay::begin(const AmoledConfig& cfg) {
     command(init[i].cmd, init[i].data, init[i].len);
     if (init[i].delay_ms) vTaskDelay(pdMS_TO_TICKS(init[i].delay_ms));
   }
+  // Each band's DMA transfer must finish before the bounce buffer is refilled.
+  bands_.emplace(
+      cfg.height, kBounceRows, 100,
+      [this](int y, int rows) {
+        const int w = cfg_.width;
+        std::memcpy(bounce_, fb_ + static_cast<size_t>(y) * w, static_cast<size_t>(rows) * w * 2);
+        const int x0 = cfg_.gap_x, x1 = cfg_.gap_x + w - 1;
+        const int ya = y + cfg_.gap_y, yb = y + rows - 1 + cfg_.gap_y;
+        const uint8_t cols[4] = {static_cast<uint8_t>(x0 >> 8), static_cast<uint8_t>(x0), static_cast<uint8_t>(x1 >> 8),
+                                 static_cast<uint8_t>(x1)};
+        const uint8_t lines[4] = {static_cast<uint8_t>(ya >> 8), static_cast<uint8_t>(ya), static_cast<uint8_t>(yb >> 8),
+                                  static_cast<uint8_t>(yb)};
+        command(0x2A, cols, 4);
+        command(0x2B, lines, 4);
+        return esp_lcd_panel_io_tx_color(io_, static_cast<int>(kRamWrite), bounce_, static_cast<size_t>(rows) * w * 2) ==
+               ESP_OK;
+      },
+      [this](uint32_t ms) { return xSemaphoreTake(done_, pdMS_TO_TICKS(ms)) == pdTRUE; });
   ESP_LOGI(TAG, "CO5300 %ux%u ready", cfg.width, cfg.height);
   return true;
 }
@@ -162,25 +180,10 @@ hg::DisplayInfo AmoledDisplay::info() const {
 }
 
 void AmoledDisplay::flush(uint16_t y0, uint16_t y1) {
-  const int w = cfg_.width, h = cfg_.height;
   // Even start and even span: widen the dirty rows by at most one on each side.
-  int top = y0 & ~1;
-  int bottom = std::min(h, (y1 + 1) & ~1);
-  const int x0 = cfg_.gap_x, x1 = cfg_.gap_x + w - 1;
-  for (int y = top; y < bottom; y += kBounceRows) {
-    const int rows = std::min(kBounceRows, bottom - y);
-    std::memcpy(bounce_, fb_ + static_cast<size_t>(y) * w, static_cast<size_t>(rows) * w * 2);
-    const int ya = y + cfg_.gap_y, yb = y + rows - 1 + cfg_.gap_y;
-    const uint8_t cols[4] = {static_cast<uint8_t>(x0 >> 8), static_cast<uint8_t>(x0), static_cast<uint8_t>(x1 >> 8),
-                             static_cast<uint8_t>(x1)};
-    const uint8_t lines[4] = {static_cast<uint8_t>(ya >> 8), static_cast<uint8_t>(ya), static_cast<uint8_t>(yb >> 8),
-                              static_cast<uint8_t>(yb)};
-    command(0x2A, cols, 4);
-    command(0x2B, lines, 4);
-    esp_lcd_panel_io_tx_color(io_, static_cast<int>(kRamWrite), bounce_, static_cast<size_t>(rows) * w * 2);
-    // The bounce buffer is reused: wait until the DMA transfer has finished.
-    xSemaphoreTake(done_, pdMS_TO_TICKS(100));
-  }
+  const int top = y0 & ~1;
+  const int bottom = std::min<int>(cfg_.height, (y1 + 1) & ~1);
+  report_band_event(TAG, bands_->flush(top, bottom));
 }
 
 void AmoledDisplay::set_backlight(uint8_t percent) {

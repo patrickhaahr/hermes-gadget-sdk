@@ -15,6 +15,7 @@
 |---|---|
 | Device stays on Connecting | Use the URL from `hermes gadget info`. Keep the gateway running and allow its port through the host firewall. A board cannot use `127.0.0.1` to reach another computer |
 | Board cannot join Wi-Fi | Check the password and use a 2.4 GHz network |
+| Screen stays dark but the USB console answers | The display failed to start and the gadget runs without it. The boot log names the call that failed (`... failed: ESP_ERR_...`); check the wiring, the panel revision and the board profile |
 | "No pairing code yet" | An allowlist may reject unknown senders. Keep `platforms.gadget.extra.unauthorized_dm_behavior: pair`, or add the device ID to `GADGET_ALLOWED_USERS`. Check `hermes pairing list` |
 | "Device key does not match" | After a factory reset, run `hermes gadget forget <device_id>` on the Hermes computer, then pair again |
 | Browser cannot find a board | Use Chrome or Edge on a computer and a USB data cable. If there are two USB ports, use UART for settings. Close other serial monitors |

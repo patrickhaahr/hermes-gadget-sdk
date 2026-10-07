@@ -32,6 +32,7 @@
 #include "esp_lcd_io_i80.h"
 #include "esp_lcd_types.h"
 #include "esp_lcd_touch.h"
+#include "esp_log.h"
 #include "esp_websocket_client.h"
 #include "esp_http_server.h"
 #include "freertos/semphr.h"
@@ -147,6 +148,7 @@ class RgbDisplay final : public hg::Display {
   esp_lcd_panel_handle_t panel_ = nullptr;
   i2c_master_dev_handle_t expander_ = nullptr;
   uint16_t* fb_ = nullptr;
+  bool draw_failed_ = false;
   uint16_t* staging_ = nullptr;
   SemaphoreHandle_t done_ = nullptr;
 };
@@ -231,6 +233,7 @@ class ParallelDisplay final : public hg::Display {
   int bounce_rows_ = 0;
   uint8_t backlight_level_ = 0;
   SemaphoreHandle_t done_ = nullptr;
+  std::optional<hg::BandFlush> bands_;
 };
 
 // QSPI AMOLED (CO5300) via esp_lcd panel IO. Same framebuffer and bounce-buffer
@@ -251,7 +254,33 @@ class AmoledDisplay final : public hg::Display {
   uint16_t* fb_ = nullptr;
   uint16_t* bounce_ = nullptr;
   SemaphoreHandle_t done_ = nullptr;
+  std::optional<hg::BandFlush> bands_;
 };
+
+// Logs a failed ESP-IDF call. A display's begin() returns false on one, so the
+// gadget runs without a screen instead of rebooting in a loop.
+inline bool esp_ok(esp_err_t err, const char* tag, const char* what) {
+  if (err == ESP_OK) return true;
+  ESP_LOGE(tag, "%s failed: %s", what, esp_err_to_name(err));
+  return false;
+}
+
+// What a BandFlush result means for the person reading the log.
+inline void report_band_event(const char* tag, hg::BandFlush::Event event) {
+  switch (event) {
+    case hg::BandFlush::Event::TimedOut:
+      ESP_LOGE(tag, "LCD transfer timed out; display paused until it completes");
+      break;
+    case hg::BandFlush::Event::Resumed:
+      ESP_LOGW(tag, "late LCD transfer completed; display resumed");
+      break;
+    case hg::BandFlush::Event::Failed:
+      ESP_LOGE(tag, "LCD transfer failed; display updates stopped until reboot");
+      break;
+    case hg::BandFlush::Event::None:
+      break;
+  }
+}
 
 // Pulses the board's TCA9554 reset lines before the display and touch start.
 bool tca9554_reset(i2c_master_bus_handle_t bus, const ExpanderResetConfig& reset);
