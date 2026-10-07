@@ -83,7 +83,8 @@ class Storage {
  public:
   virtual ~Storage() = default;
   virtual std::optional<std::string> get(std::string_view key) = 0;
-  virtual void set(std::string_view key, std::string_view value) = 0;
+  // False when the value could not be saved (the key stays as it was).
+  virtual bool set(std::string_view key, std::string_view value) = 0;
   virtual void erase(std::string_view key) = 0;
 };
 

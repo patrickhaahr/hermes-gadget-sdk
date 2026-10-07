@@ -19,7 +19,9 @@
 #include "axp2101.hpp"
 #include "band_flush.hpp"
 #include "cores3.hpp"
+#include "shared_reply.hpp"
 #include "speaker_pa.hpp"
+#include "tag_scanner.hpp"
 #include "driver/i2c_master.h"
 #include "driver/i2s_std.h"
 #include "esp_codec_dev.h"
@@ -59,10 +61,20 @@ struct EncoderSample {
   int8_t direction;
 };
 
-struct ConsoleRequest {
-  SemaphoreHandle_t done;
-  std::string reply;
+// Wakes a console command when the app task has answered it.
+struct ConsoleSignal {
+  SemaphoreHandle_t handle = xSemaphoreCreateBinary();
+  ~ConsoleSignal() {
+    if (handle) vSemaphoreDelete(handle);
+  }
+  void give() {
+    if (handle) xSemaphoreGive(handle);
+  }
+  bool wait(uint32_t timeout_ms) { return handle && xSemaphoreTake(handle, pdMS_TO_TICKS(timeout_ms)) == pdTRUE; }
 };
+
+// Shared by the console task and the app task; see shared_reply.hpp.
+using ConsoleRequest = hg::SharedReply<ConsoleSignal>;
 
 struct Event {
   EventType type;
@@ -95,7 +107,7 @@ class NvsStorage final : public hg::Storage {
  public:
   bool begin();
   std::optional<std::string> get(std::string_view key) override;
-  void set(std::string_view key, std::string_view value) override;
+  bool set(std::string_view key, std::string_view value) override;
   void erase(std::string_view key) override;
 
  private:
@@ -414,6 +426,8 @@ class EspUpdater final : public hg::Updater {
  public:
   // Looks at the running image: if it is on probation, starts the rollback clock.
   void start();
+  // The board name an image must carry (HGBOARD=<name>) to be installed.
+  void expect_board(const char* name) { board_ = name ? name : ""; }
   size_t capacity() const override;
   bool begin(size_t size, std::string& error) override;
   bool write(const uint8_t* data, size_t len, std::string& error) override;
@@ -427,6 +441,8 @@ class EspUpdater final : public hg::Updater {
 
  private:
   static constexpr size_t kHeadBytes = 112;  // image + segment headers, then the app description up to its project name
+  std::string board_;
+  hg::TagScanner board_tag_{"HGBOARD="};
   const void* target_ = nullptr;             // esp_partition_t
   uint32_t handle_ = 0;                      // esp_ota_handle_t
   bool open_ = false;

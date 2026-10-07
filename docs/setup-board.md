@@ -50,7 +50,7 @@ hermes gadget devices
 hermes gadget update "Kitchen" --latest
 ```
 
-For a custom build, follow [Build and flash](hardware.md#build-and-flash). For USB configuration from the SDK checkout, install the serial extra with `python -m pip install -e ".[serial]"` and use `hermes-gadget provision --help`.
+The plugin and the device both refuse an image built for another board, so a wrong `--board` or file cannot be installed. For a custom build, follow [Build and flash](hardware.md#build-and-flash). For USB configuration from the SDK checkout, install the serial extra with `python -m pip install -e ".[serial]"` and use `hermes-gadget provision --help`.
 
 ## Set up Wi-Fi with your phone
 
