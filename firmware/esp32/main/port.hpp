@@ -19,6 +19,7 @@
 #include "axp2101.hpp"
 #include "band_flush.hpp"
 #include "cores3.hpp"
+#include "shared_reply.hpp"
 #include "speaker_pa.hpp"
 #include "tag_scanner.hpp"
 #include "driver/i2c_master.h"
@@ -59,10 +60,20 @@ struct EncoderSample {
   int8_t direction;
 };
 
-struct ConsoleRequest {
-  SemaphoreHandle_t done;
-  std::string reply;
+// Wakes a console command when the app task has answered it.
+struct ConsoleSignal {
+  SemaphoreHandle_t handle = xSemaphoreCreateBinary();
+  ~ConsoleSignal() {
+    if (handle) vSemaphoreDelete(handle);
+  }
+  void give() {
+    if (handle) xSemaphoreGive(handle);
+  }
+  bool wait(uint32_t timeout_ms) { return handle && xSemaphoreTake(handle, pdMS_TO_TICKS(timeout_ms)) == pdTRUE; }
 };
+
+// Shared by the console task and the app task; see shared_reply.hpp.
+using ConsoleRequest = hg::SharedReply<ConsoleSignal>;
 
 struct Event {
   EventType type;

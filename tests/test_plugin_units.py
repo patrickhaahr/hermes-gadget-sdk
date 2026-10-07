@@ -94,3 +94,19 @@ def test_pairing_codes_expire(tmp_path):
     assert store.pairing_for("hg-0123456789abcdef")[0] == "ABCD2345"
     store.remember_pairing("hg-0123456789abcdef", "ABCD2345", "cmd", ttl_s=-1)
     assert store.pairing_for("hg-0123456789abcdef") is None
+
+
+def test_store_changes_from_another_process_are_seen(tmp_path):
+    """The gateway keeps its DeviceStore open; `hermes gadget forget` edits the same file from another process."""
+    gateway = DeviceStore(tmp_path)
+    gateway.enroll("hg-0123456789abcdef", b"k" * 32, name="Kitchen", board="b")
+
+    cli = DeviceStore(tmp_path)  # a second process: fresh instance on the same file
+    assert cli.forget("hg-0123456789abcdef")
+
+    gateway.touch("hg-0123456789abcdef", firmware="0.2.0")  # the device reconnects
+    assert gateway.key_for("hg-0123456789abcdef") is None, "a forgotten key must not be resurrected by the gateway"
+    assert DeviceStore(tmp_path).key_for("hg-0123456789abcdef") is None
+
+    cli.enroll("hg-fedcba9876543210", b"j" * 32)  # and the other way round
+    assert gateway.key_for("hg-fedcba9876543210") == b"j" * 32

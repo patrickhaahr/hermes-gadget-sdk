@@ -20,14 +20,18 @@ int run(int argc, char** argv) {
     if (i) line.push_back(' ');
     line += argv[i];
   }
-  ConsoleRequest req{xSemaphoreCreateBinary(), {}};
-  if (!events::post(EventType::Console, line.data(), line.size(), 0, &req) ||
-      xSemaphoreTake(req.done, pdMS_TO_TICKS(3000)) != pdTRUE) {
+  // The app task answers on its own time. The slot outlives this function
+  // if that answer comes after the wait below gave up.
+  ConsoleRequest* req = ConsoleRequest::create();
+  if (!events::post(EventType::Console, line.data(), line.size(), 0, req)) {
+    req->release();  // nobody will answer: drop the app task's share too
+    std::printf("@error device busy\n");
+  } else if (!req->wait(3000)) {
     std::printf("@error device busy\n");
   } else {
-    std::printf("%s\n", req.reply.c_str());
+    std::printf("%s\n", req->reply().c_str());
   }
-  vSemaphoreDelete(req.done);
+  req->release();
   return 0;
 }
 
