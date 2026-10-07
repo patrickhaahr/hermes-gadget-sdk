@@ -16,6 +16,8 @@ namespace {
 #define HG_BOARD_NAME "esp32s3-touch-amoled-1.75c"
 #elif CONFIG_HG_BOARD_AMOLED_18
 #define HG_BOARD_NAME "esp32s3-touch-amoled-1.8"
+#elif CONFIG_HG_BOARD_AIPI_LITE
+#define HG_BOARD_NAME "aipi-lite"
 #elif CONFIG_HG_BOARD_BOX3
 #define HG_BOARD_NAME "esp32-s3-box-3"
 #elif CONFIG_HG_BOARD_CORES3
@@ -326,6 +328,45 @@ BoardConfig make() {
   b.buttons = {0, 14, -1, -1};
   b.talk_label = "BOOT";
   b.cancel_label = "B2";
+  return b;
+}
+#elif CONFIG_HG_BOARD_AIPI_LITE
+// AIPI Lite (Xorigin): 128x128 ST7789-family SPI panel, one ES8311 codec doing
+// both directions on a single duplex I2S bus, BOOT (GPIO42) and power (GPIO1)
+// keys, battery gauge on ADC1_CH1 with power latch on GPIO10.
+// Pins: xiaozhi-esp32 board xorigin/aipi-lite (upstream mapping).
+BoardConfig make() {
+  BoardConfig b{};
+  b.name = kBoardName;
+  b.lcd.enabled = true;
+  b.lcd.width = 128;
+  b.lcd.height = 128;
+  b.lcd.swap_xy = true;
+  b.lcd.mirror_x = true;
+  b.lcd.mirror_y = false;
+  b.lcd.invert = false;
+  b.lcd.gap_x = 0;
+  b.lcd.gap_y = 0;
+  b.lcd.mosi = 17;
+  b.lcd.sclk = 16;
+  b.lcd.cs = 15;
+  b.lcd.dc = 7;
+  b.lcd.rst = 18;
+  b.lcd.backlight = 3;
+  b.i2c = {5, 4, 400000};
+  b.codec.enabled = true;
+  b.codec.mclk = 6;
+  b.codec.bclk = 14;
+  b.codec.ws = 12;
+  b.codec.dout = 11;
+  b.codec.din = 13;
+  b.codec.pa = 9;
+  b.codec.mic = MicCodec::Es8311;
+  // Power rail: GPIO10 must latch high before the ES8311 on I2C answers.
+  b.latch_power = {true, 1, 10, 8};
+  b.buttons = {42, 1, -1, -1};
+  b.talk_label = "BOOT";
+  b.cancel_label = "PWR";
   return b;
 }
 #elif CONFIG_HG_BOARD_CUSTOM

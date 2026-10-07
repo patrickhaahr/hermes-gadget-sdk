@@ -45,6 +45,8 @@ menu "Hermes Gadget"
             bool "Waveshare ESP32-S3-Touch-LCD-1.85C V2 (experimental, ST77916, CST816, codecs)"
         config HG_BOARD_T_DISPLAY_S3
             bool "LilyGO T-Display-S3 (ST7789 320x170 on an i80 parallel bus, no audio)"
+        config HG_BOARD_AIPI_LITE
+            bool "AIPI Lite (128x128 ST7789, ES8311 codec, battery)"
         config HG_BOARD_CUSTOM
             bool "Custom pins (configure below)"
     endchoice
