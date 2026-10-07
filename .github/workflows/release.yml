@@ -63,6 +63,10 @@ jobs:
           ctest --test-dir build/host --output-on-failure
           python -m pip wheel --no-deps . --wheel-dir build/wheels
           python linux/package.py --library build/host/libhgsim.so --wheel build/wheels/hermes_gadget-*.whl
+      - name: Test installation and updates on Debian Trixie
+        run: |
+          archive=$(find dist -name '*-linux-arm64.tar.gz')
+          docker run --rm -v "$PWD:/source:ro" debian:trixie-slim sh /source/linux/test_install.sh "/source/$archive"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: linux-arm64

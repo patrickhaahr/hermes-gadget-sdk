@@ -16,6 +16,7 @@
 
 ### Linux
 
+- The Raspberry Pi installer installs the release's pinned Python dependencies from a hash-checked lock file shipped in the package, wheels only, so a Pi runs exactly what CI tested instead of whatever PyPI serves that day. The release workflow runs the container install test before publishing.
 - The Raspberry Pi installer checks that a new release answers on its control socket before calling the update done, and goes back to the previous release when it does not, matching the firmware's rollback. `sudo hermes-gadget-device rollback` swaps the current and previous releases by hand. A dependency installation that fails is removed instead of blocking the next attempt, the newest three releases are kept, and a release that keeps crashing at startup stops being restarted after five tries.
 
 ### Hermes plugin

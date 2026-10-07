@@ -42,7 +42,7 @@ def package(library: Path, wheel: Path, out: Path, revision: str) -> Path:
             shutil.copy2(ROOT / file, root / file)
         shutil.copytree(ROOT / "LICENSES", root / "LICENSES")
         shutil.copy2(ROOT / "docs/linux.md", root / "linux.md")
-        for file in ("install.sh", "hermes-gadget.service", "hermes-gadget-device"):
+        for file in ("install.sh", "hermes-gadget.service", "hermes-gadget-device", "requirements.txt"):
             (root / file).write_text((ROOT / "linux" / file).read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
         (root / "install.sh").chmod(0o755)
         manifest = {"version": version, "revision": revision, "architecture": architecture,

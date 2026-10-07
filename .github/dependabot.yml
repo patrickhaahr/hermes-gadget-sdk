@@ -28,6 +28,18 @@ updates:
       prefix: "Installer"
 
   - package-ecosystem: pip
+    directory: /linux
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      linux:
+        patterns: ["*"]
+    commit-message:
+      prefix: "Linux"
+
+  - package-ecosystem: pip
     directory: /
     schedule:
       interval: weekly
