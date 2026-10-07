@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hermes Gadget</string>
+    <string name="channel_name">Gadget connection</string>
+    <string name="service_running">Connected to Hermes when online</string>
+    <string name="setup_title">Gadget settings</string>
+    <string name="label_server">Hermes gadget URL (hermes gadget info)</string>
+    <string name="label_name">Gadget name</string>
+    <string name="label_token">Access token (optional)</string>
+    <string name="action_save">Save and connect</string>
+    <string name="action_battery">Allow running in the background</string>
+    <string name="battery_ok">Battery optimization is already off for this app.</string>
+    <string name="action_kiosk_pause">Leave kiosk mode for now</string>
+    <string name="action_kiosk_resume">Return to kiosk mode</string>
+    <string name="action_kiosk_release">Stop being the device owner</string>
+    <string name="kiosk_paused">Kiosk mode is paused until you return to it here.</string>
+    <string name="kiosk_release_confirm">The phone becomes an ordinary phone again. Making this app the device owner again needs adb and a phone with no accounts.</string>
+    <string name="status_stopped">The gadget is not running.</string>
+</resources>

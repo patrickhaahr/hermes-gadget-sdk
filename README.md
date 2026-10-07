@@ -38,7 +38,7 @@ Your Hermes does the thinking. Real conversations need Hermes Agent and the Gadg
 
 ## Supported hardware
 
-Hermes Gadget runs on ESP32-S3 boards and Raspberry Pi 4/5, with a desktop simulator for trying it without hardware. See [Supported hardware](docs/supported-hardware.md) to compare boards, controls, audio, and setup options.
+Hermes Gadget runs on ESP32-S3 boards and Raspberry Pi 4/5, with an experimental Android client and a desktop simulator for trying it without hardware. See [Supported hardware](docs/supported-hardware.md) to compare boards, controls, audio, and setup options.
 
 Hardware ports remain experimental until a complete physical verification report is recorded for the exact revision. Check the [verification table](docs/hardware-validation.md) before choosing a board.
 

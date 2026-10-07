@@ -30,6 +30,12 @@ Raspberry Pi 4 and 5 have an experimental [Linux client](linux.md) for 64-bit Ra
 
 See the [Linux guide](linux.md) for installation and peripherals, and the [verification table](hardware-validation.md) for testing status.
 
+## Android phones
+
+Phones running Android 11 or newer have an experimental [Android client](android.md). It uses the phone's microphone, speaker and touch screen, and can run as a dedicated device that starts on boot. Install it with `adb`.
+
+See the [Android guide](android.md) for setup, and the [verification table](hardware-validation.md) for testing status.
+
 ## Other hardware
 
 Other boards need a [port](porting.md). Check the existing wiring and driver support before choosing hardware with a different display, audio codec, or power controller.

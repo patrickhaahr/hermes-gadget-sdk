@@ -81,6 +81,27 @@ jobs:
       - name: Test
         run: ctest --test-dir build/host -C Release --output-on-failure
 
+  android:
+    name: Android client
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6.0.1
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+      - name: Build and test
+        # The unit tests drive the device core through the JNI bridge, built for the runner.
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug testDebugUnitTest
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: android-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
   python:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
