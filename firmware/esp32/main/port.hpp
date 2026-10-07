@@ -24,6 +24,7 @@
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_lcd_panel_io.h"
+#include "esp_lcd_panel_rgb.h"
 #include "esp_lcd_io_i80.h"
 #include "esp_lcd_types.h"
 #include "esp_lcd_touch.h"
@@ -41,15 +42,18 @@ namespace hgp {
 // Events
 
 enum class EventType : uint8_t { NetUp, NetDown, WsOpen, WsText, WsBinary, WsClosed, Mic, Console, Touch, Key,
-                                 WifiStarted, WifiDisconnected, WifiProvision };
+                                 WifiStarted, WifiDisconnected, WifiProvision, Encoder };
 
-// Payloads of Touch and Key events (posted by the input task).
+// Payloads of Touch, Key and Encoder events (posted by the input task).
 struct TouchSample {
   bool touching;
   int16_t x, y;
 };
 struct KeySample {
   bool pressed;
+};
+struct EncoderSample {
+  int8_t direction;
 };
 
 struct ConsoleRequest {
@@ -111,6 +115,25 @@ class WsTransport final : public hg::Transport {
   std::string url_, subprotocol_;
   std::string rx_;  // fragment reassembly (WebSocket task only)
   uint8_t rx_opcode_ = 0;
+};
+
+// ESP-IDF RGB timing bus with ST7701 command initialization on 3-wire SPI.
+class RgbDisplay final : public hg::Display {
+ public:
+  bool begin(const LcdConfig& cfg, i2c_master_bus_handle_t bus);
+  hg::DisplayInfo info() const override;
+  uint16_t* framebuffer() override { return fb_; }
+  void flush(uint16_t y0, uint16_t y1) override;
+  void set_backlight(uint8_t percent) override;
+
+ private:
+  static bool on_color_done(esp_lcd_panel_handle_t panel, const esp_lcd_rgb_panel_event_data_t* edata, void* ctx);
+  LcdConfig cfg_{};
+  esp_lcd_panel_io_handle_t io_ = nullptr;
+  esp_lcd_panel_handle_t panel_ = nullptr;
+  i2c_master_dev_handle_t expander_ = nullptr;
+  uint16_t* fb_ = nullptr;
+  SemaphoreHandle_t done_ = nullptr;
 };
 
 class SpiDisplay final : public hg::Display {
@@ -265,9 +288,7 @@ class CodecSpeaker final : public hg::AudioOut {
   std::atomic<bool> flush_{false};
 };
 
-// Polls a CST9217 touchscreen and a TCA9554-mirrored key on the I2C bus from
-// its own task (the controller needs a pause between write and read) and
-// posts Touch and Key events to the app task.
+// Polls the vendor CST8XX touch protocol, PCF8574 button, and GPIO rotary encoder.
 class TouchInput {
  public:
   bool begin(const TouchConfig& touch, const ExpanderKeyConfig& key, i2c_master_bus_handle_t bus);
@@ -279,11 +300,17 @@ class TouchInput {
   bool read_touch(TouchSample& out);
   bool begin_box_touch(i2c_master_bus_handle_t bus);
   bool read_key(bool& pressed);
+  bool sample_encoder(int& direction);
   TouchConfig touch_{};
   ExpanderKeyConfig key_{};
   i2c_master_dev_handle_t touch_dev_ = nullptr;
   i2c_master_dev_handle_t key_dev_ = nullptr;
   esp_lcd_touch_handle_t managed_touch_ = nullptr;
+  gpio_num_t encoder_a_ = GPIO_NUM_NC;
+  gpio_num_t encoder_b_ = GPIO_NUM_NC;
+  uint8_t encoder_state_ = 0;
+  int8_t encoder_accumulator_ = 0;
+  uint8_t expander_outputs_ = 0xff;
 };
 
 class AxpPower final : public hg::Power {

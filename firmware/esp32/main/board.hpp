@@ -11,14 +11,34 @@ namespace hgp {
 
 // How an I80 panel is wired: eight data lines and a write strobe.
 struct LcdBus {
-  enum class Type : uint8_t { Spi, I80 };
+  enum class Type : uint8_t { Spi, I80, Rgb };
   Type type = Type::Spi;
   int data[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
   int wr = -1;
   int pclk_mhz = 16;
 };
 
-enum class LcdController { St7789, Box3, CoreS3 };
+enum class LcdController { St7789, Box3, CoreS3, CrowPanel21 };
+enum class TouchController { Cst9217, Box3, Ft5x06 };
+
+struct RgbPanelConfig {
+  int de = -1, vsync = -1, hsync = -1, pclk = -1;
+  int data[16] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+  int cmd_cs = -1, cmd_sclk = -1, cmd_sda = -1;
+  int i2c_expander = -1;
+  int touch_irq = -1;
+  int encoder_a = -1, encoder_b = -1, encoder_button = -1;
+  uint32_t pclk_hz = 12000000;
+};
+
+// Read a key from an I/O expander when the board doesn't connect it to GPIO.
+struct ExpanderKeyConfig {
+  bool enabled = false;
+  uint8_t addr = 0x20;
+  uint8_t bit = 0;
+  bool active_high = true;
+  bool pcf8574 = false;
+};
 
 struct LcdConfig {
   bool enabled = false;
@@ -27,10 +47,11 @@ struct LcdConfig {
   int gap_x = 0, gap_y = 0;
   int mosi = -1, sclk = -1, cs = -1, dc = -1, rst = -1, backlight = -1;
   int spi_mhz = 40;
+  bool backlight_invert = false;  // active-low GPIO backlight, independent of pixel inversion
   LcdBus bus{};
+  RgbPanelConfig rgb{};
   LcdController controller = LcdController::St7789;
   bool reset_active_high = false;
-  bool backlight_invert = false;  // active-low GPIO backlight, independent of pixel inversion
 };
 
 struct I2sMicConfig {
@@ -72,24 +93,14 @@ struct CodecAudioConfig {
 };
 
 // Capacitive touch on the I2C bus: hold to talk, tap, swipe down to cancel.
-enum class TouchController { Cst9217, Box3, Ft5x06 };
-
 struct TouchConfig {
   bool enabled = false;
   uint8_t addr = 0x5A;
   int rst = -1;
+  int irq = -1;
   uint16_t width = 0, height = 0;
   bool mirror_x = false, mirror_y = false;
   TouchController controller = TouchController::Cst9217;
-};
-
-// A key whose level is read from a TCA9554 I/O expander input (e.g. a PMIC's
-// power key). Acts as CANCEL: a press cancels, holding 2 s starts a new session.
-struct ExpanderKeyConfig {
-  bool enabled = false;
-  uint8_t addr = 0x20;
-  uint8_t bit = 0;
-  bool active_high = true;
 };
 
 struct ButtonConfig {

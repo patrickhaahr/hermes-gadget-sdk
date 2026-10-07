@@ -1,0 +1,6 @@
+{
+  "title": "Elecrow CrowPanel 2.1-inch HMI",
+  "summary": "480x480 touchscreen and rotary knob. Text-only: no onboard microphone or speaker. Experimental.",
+  "docs": "docs/hardware.md#elecrow-crowpanel-21-inch-hmi",
+  "ready_made": true
+}

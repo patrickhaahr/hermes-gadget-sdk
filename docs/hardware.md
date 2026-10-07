@@ -260,6 +260,43 @@ This port is written from Waveshare's published pinout and drivers. On the first
 6. **Microphone:** say something; the waves move with your voice, and Hermes's transcript is right.
 7. **Speaker:** replies are clear and loud enough (`set volume 80`); no hiss between replies.
 
+## Elecrow CrowPanel 2.1-inch HMI
+
+Board option `crowpanel-21`, for Elecrow's 2.1" round rotary display: an ESP32-S3R8 (8 MB octal PSRAM) with 16 MB flash, a 480×480 round ST7701 panel on a 16-bit RGB bus, a CST-family capacitive touchscreen, a rotary encoder with a push button, and a PCF8574 I/O expander for panel power, resets and the encoder button. **This board has no microphone or speaker**, so it works as a text gadget: Hermes replies, cards and prompts appear on the screen and typed messages go out through the USB console.
+
+Unlike the SPI and i80 panels above, the ST7701 takes its initialization commands over a 3-wire SPI link and then streams pixels continuously over the **16-bit RGB bus** (`esp_lcd_st7701` + `esp_lcd_panel_io_additions` managed components).
+
+| Part | Chip | Connection |
+|---|---|---|
+| Display | ST7701, 16-bit RGB | DE 40, VSYNC 7, HSYNC 15, PCLK 41 at 12 MHz; data 46/3/8/18/17/14/13/12/11/10/9/5/45/48/47/21; 480×480 round |
+| Panel init | 3-wire SPI | CS 16, SCLK 2, SDA 1 |
+| Backlight | PWM | GPIO 6, active-high |
+| I/O expander | PCF8574 @ 0x21 | P0 touch reset, P2 touch IRQ, P3 LCD power, P4 LCD reset, P5 encoder button |
+| Touch | CST-family @ 0x15 | I2C SDA 38, SCL 39 |
+| Rotary encoder | | A 42, B 4; button through the expander |
+
+**Build and flash** it with PlatformIO:
+
+```bash
+cd firmware/esp32
+pio run -e crowpanel-21 -t upload -t monitor
+```
+
+Or with `idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/crowpanel-21/sdkconfig.defaults" build`. The USB-C port is the S3's own USB Serial/JTAG, so flashing and the serial console (115200 baud) both use it.
+
+### First flash: what to check
+
+This port is written from Elecrow's published factory example ([CrowPanel repository](https://github.com/Elecrow-RD/CrowPanel-2.1inch-HMI-ESP32-Rotary-Display-480-480-IPS-Round-Touch-Knob-Screen)). On the first flash:
+
+1. **Boot log:** `ST7701 480x480 RGB panel initialized at 12000000 Hz`, `touch ready, key ready, encoder ready`, and `parts: display st7701-rgb, ... touch yes, key yes`.
+2. **Screen:** the mascot is centred inside the circle and not mirrored; colours are right (amber accents, not blue). A red/blue swap means the RGB565 channel order needs flipping.
+3. **Brightness:** cycle 10 → 100 in settings; brightness must rise with the number. The backlight PWM is active-high — do not set `backlight_invert`.
+4. **Touch:** hold the screen and the listening waves appear; a swipe down cancels; hold the title bar one second for settings.
+5. **Knob:** rotating moves through settings items; pressing the knob cancels.
+6. **Text:** `say hello` over the console, or a paired Hermes, should render on the display.
+
+Panel timings (12 MHz PCLK, 10/4/20 porches) and the ST7701 init table follow the factory `RotaryScreen_2_1` Arduino example. Display bring-up, the brightness scale, Wi-Fi, pairing and the serial console are smoke-checked on real hardware; touch coordinates and encoder direction are not yet physically verified — see the [hardware validation table](hardware-validation.md).
+
 ## Build and flash
 
 **No toolchain needed:** the [browser installer](https://adolanium.github.io/hermes-gadget-sdk/) flashes each release's prebuilt firmware from Chrome or Edge, then sets up Wi-Fi and pairing. The release files are also on the [releases page](https://github.com/Adolanium/hermes-gadget-sdk/releases), for `esptool.py write_flash 0x0 hermes-gadget-<board>-<version>.bin`, which also erases the board's settings.
