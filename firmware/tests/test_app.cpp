@@ -83,7 +83,9 @@ struct FakeHal : hg::Display, hg::AudioIn, hg::AudioOut, hg::Transport, hg::Stor
   }
   uint16_t* framebuffer() override { return fb.data(); }
   void set_backlight(uint8_t percent) override { brightness = percent; }
+  uint32_t flush_cost_ms = 0;  // how far the clock moves while a flush runs
   void flush(uint16_t y0, uint16_t y1) override {
+    clock += flush_cost_ms;
     ++flushes;
     flushed_rows += y1 - y0;
   }
@@ -379,6 +381,29 @@ TEST("app: lost connections retry with backoff") {
   CHECK_EQ(r.fake.connects, before);
   r.advance(1000);
   CHECK_EQ(r.fake.connects, before + 1);
+}
+
+TEST("app: time spent drawing before a connect does not time it out at once") {
+  // The boot screen is redrawn in the same tick that starts the connection. On a
+  // port whose flush takes a few milliseconds (a large screen copied through JNI
+  // on Android), the connection then started after the time tick() read.
+  Rig r;
+  r.fake.flush_cost_ms = 3;
+  r.app.begin();
+  r.app.on_network(true, "wifi");
+  r.advance(1000);
+  CHECK_EQ(r.fake.connects, 1);
+  CHECK_EQ(r.fake.closes, 0);
+  CHECK(r.app.screen() == hg::Screen::Connecting);
+  r.app.on_transport_open();
+  CHECK(r.fake.last("hello") != nullptr);
+  // The connect timeout itself still applies.
+  Rig slow;
+  slow.fake.flush_cost_ms = 3;
+  slow.app.begin();
+  slow.app.on_network(true, "wifi");
+  slow.advance(12000);
+  CHECK(slow.fake.closes >= 1);
 }
 
 TEST("app: a silent server is detected by the heartbeat timeout") {
