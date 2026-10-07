@@ -53,8 +53,11 @@ sudo hermes-gadget-device messages
 
 `hermes-gadget-device` runs controls as the service account and selects the
 correct state directory. Use it in place of `hermes-gadget linux` in the examples
-below when working with a package installation. To diagnose startup, use
-`sudo journalctl -u hermes-gadget -n 50`.
+below when working with a package installation; its own `rollback` command is
+described under [Update or roll back](#update-or-roll-back). To diagnose startup,
+use `sudo journalctl -u hermes-gadget -n 50`. A release that keeps crashing at
+startup is retried five times in five minutes, then the service stays stopped
+until `sudo systemctl restart hermes-gadget`.
 
 ## Build from source
 
@@ -292,17 +295,26 @@ reports no battery or ESP32 update slot.
 
 For a package installation, download and verify the new archive, extract it,
 then run its `install.sh` with sudo. The installer validates the new native
-library before stopping the current service. It switches the `current` link and
-restarts a previously running service. Reinstalling the same package is safe.
-The installer preserves `/etc/hermes-gadget/config.json` and
-`/var/lib/hermes-gadget/device.json`, including the pairing identity.
+library before stopping the current service, switches the `current` link, and
+starts a previously running service on the new release. The new release must
+then answer `hermes-gadget-device status` within 30 seconds; if it does not, the
+installer switches `current` back to the previous release, restarts the service
+on it, and exits with an error that points at the journal. Reinstalling the
+same package is safe. The installer preserves `/etc/hermes-gadget/config.json`
+and `/var/lib/hermes-gadget/device.json`, including the pairing identity.
 
 Back up those two files securely before updating. Installed releases remain in
-`/opt/hermes-gadget/releases`; the `previous` link identifies the prior release.
-To roll back, rerun the installer from the previous release's archive. Check
-`sudo hermes-gadget-device status` after either operation. An interrupted
-dependency installation leaves a named incomplete directory; move that specific
-directory aside before retrying, as the installer instructs.
+`/opt/hermes-gadget/releases`; the newest three are kept, plus whatever
+`current` and `previous` point at. To go back to the previous release by hand:
+
+```bash
+sudo hermes-gadget-device rollback
+```
+
+It swaps `current` and `previous` and restarts a running service, so a second
+`rollback` returns to the newer release. Check `sudo hermes-gadget-device status`
+after either operation. A dependency installation that fails is removed again,
+so the installer can simply be rerun once the cause is fixed.
 
 For a source checkout, stop the process, update the checkout, rebuild the native
 library, and restart with the same state directory.
