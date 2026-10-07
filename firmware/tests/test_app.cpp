@@ -1070,7 +1070,7 @@ struct RoundTarget {
   int diameter, left, top, width, height;
 };
 constexpr RoundTarget kRound360{360, 120, 53, 120, 36};
-constexpr RoundTarget kRound466{466, 112, 68, 240, 52};
+constexpr RoundTarget kRound466{466, 112, 68, 240, 36};
 
 static void check_round_target_gestures(const RoundTarget& t) {
   Rig r(Rig::touch_profile());
@@ -1148,17 +1148,20 @@ TEST("settings: round target is drawn only while the hold works") {
   Rig r(Rig::touch_profile());
   r.fake.make_round(466);
   r.bring_online(true);
-  const size_t in_bar = static_cast<size_t>((kRound466.top + 2) * 466 + kRound466.left + 2);
-  const uint16_t lit = r.fake.fb[in_bar];
+  const auto band = [&] {
+    return std::vector<uint16_t>(r.fake.fb.begin() + kRound466.top * 466,
+                                 r.fake.fb.begin() + (kRound466.top + kRound466.height) * 466);
+  };
+  const auto shown = band();
   r.server(R"({"type":"turn.start","turn":"t"})");
   r.server(R"({"type":"prompt","id":"q1","text":"Continue?"})");
   CHECK(r.app.screen() == hg::Screen::Prompt);
-  CHECK(r.fake.fb[in_bar] != lit);
+  CHECK(band() != shown);  // the label is hidden while a hold would do nothing
   r.advance(700);
   r.app.on_button(hg::Button::Talk, true);
   r.app.on_button(hg::Button::Talk, false);
   CHECK(r.app.screen() == hg::Screen::Thinking);
-  CHECK(r.fake.fb[in_bar] == lit);
+  CHECK(band() == shown);
 }
 
 TEST("settings: rectangular boards keep the full-width title strip and their header") {
