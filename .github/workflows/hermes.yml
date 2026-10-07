@@ -26,7 +26,7 @@ concurrency:
 
 env:
   # The Hermes Agent commit this SDK is verified against. To move it, run this workflow by hand
-  # with hermes_ref: main; when it passes, put the commit it printed here and in the README.
+  # with hermes_ref: main; when it passes, put the commit it printed here and in plugin/compat.py.
   HERMES_REF: 2eceb0275501b09febdec88d08b80d1fff730cf8
 
 jobs:

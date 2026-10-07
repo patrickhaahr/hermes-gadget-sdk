@@ -29,7 +29,7 @@ assets/mascot/          The mascot master image and its attribution
 
 The Python jobs in `.github/workflows/ci.yml` run under `xvfb-run` so the desktop controls run against the simulator core and development hub. On a headless Linux machine, use `xvfb-run -a pytest`. Without a display, the window tests skip; set `HERMES_GADGET_UI_TESTS=1` to require them.
 
-CI runs the adapter and gateway suites in `.github/workflows/hermes.yml`: against the Hermes commit pinned there (`HERMES_REF`) on every push and pull request, and against Hermes `main` once a day. To move the pin, run that workflow by hand with `hermes_ref: main`. When it passes, put the commit it printed into `HERMES_REF` and the README's status line.
+CI runs the adapter and gateway suites in `.github/workflows/hermes.yml`: against the Hermes commit pinned there (`HERMES_REF`) on every push and pull request, and against Hermes `main` once a day. To move the pin, run that workflow by hand with `hermes_ref: main`. When it passes, put the commit it printed into `HERMES_REF` and into `TESTED_HERMES_COMMIT` in `plugin/compat.py`; a test checks that the two agree.
 
 The Linux jobs run on `ubuntu-24.04` rather than `ubuntu-latest`, so a new runner image arrives as a deliberate change instead of a surprise. Dependabot proposes the workflows' actions, the installer's npm packages and the Python dependencies weekly, a week after each release.
 
