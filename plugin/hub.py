@@ -159,7 +159,10 @@ class AudioOut:
                     break
                 ahead = self.sent_seconds - (loop.time() - base)
                 if ahead < 0:
-                    base += ahead  # producer stalled: rebase so we never burst past the lead
+                    # The producer stalled: playback is caught up, so restart the clock here.
+                    # (Moving `base` by `ahead` went the wrong way and let the rest of the
+                    # reply out in one burst after the first stall.)
+                    base = loop.time() - self.sent_seconds
                 elif ahead > PLAYBACK_LEAD_S:
                     await asyncio.sleep(ahead - PLAYBACK_LEAD_S)
                 await self._session.send_binary(protocol.binary(protocol.CHANNEL_AUDIO, self.stream, seq, frame))
