@@ -51,6 +51,6 @@ def test_pair_approves_through_hermes_pairing_store(hermes_home, capsys):
     devices.remember_pairing(DEVICE, code, f"hermes pairing approve gadget {code}", 3600)
     assert not PairingStore().is_approved("gadget", DEVICE)
 
-    cli._cmd_pair(types.SimpleNamespace(yes=True, timeout=5))
+    cli._cmd_pair(types.SimpleNamespace(yes=True, timeout=5, device=None))
     assert PairingStore().is_approved("gadget", DEVICE)
     assert "Approved Desk" in capsys.readouterr().out

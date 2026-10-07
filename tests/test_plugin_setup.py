@@ -90,14 +90,14 @@ class FakeApprovals:
         return {"user_id": device_id, "user_name": ""}
 
 
-def _pair(monkeypatch, stores, approvals, *, yes=False, answers=(), timeout=0.0):
+def _pair(monkeypatch, stores, approvals, *, yes=False, answers=(), timeout=0.0, device=None):
     stores = iter(stores) if isinstance(stores, list) else iter([stores] * 1000)
     monkeypatch.setattr(cli, "_store", lambda: next(stores))
     monkeypatch.setattr(cli, "_pairing_store", lambda: approvals)
     monkeypatch.setattr(cli.time, "sleep", lambda seconds: None)
     replies = iter(answers)
     monkeypatch.setattr("builtins.input", lambda question: next(replies))
-    cli._cmd_pair(types.SimpleNamespace(yes=yes, timeout=timeout))
+    cli._cmd_pair(types.SimpleNamespace(yes=yes, timeout=timeout, device=device))
 
 
 def test_pair_approves_the_device_showing_a_code(monkeypatch, capsys):
@@ -136,3 +136,26 @@ def test_pair_waits_for_a_device_to_ask(monkeypatch, capsys):
     with pytest.raises(SystemExit) as stop:
         _pair(monkeypatch, nobody, approvals, yes=True, timeout=0)
     assert "No gadget asked to pair" in str(stop.value)
+
+
+def test_pair_yes_refuses_to_approve_several_waiting_devices(monkeypatch, capsys):
+    devices = FakeDevices({DESK: {"name": "Desk"}, KITCHEN: {"name": "Kitchen"}},
+                          {DESK: "ABCD2345", KITCHEN: "EFGH6789"})
+    approvals = FakeApprovals({"ABCD2345": DESK, "EFGH6789": KITCHEN})
+    with pytest.raises(SystemExit) as stop:
+        _pair(monkeypatch, devices, approvals, yes=True)
+    assert approvals.approved == set()
+    assert "More than one gadget is waiting" in str(stop.value)
+    assert f"hermes gadget pair --yes {DESK}" in str(stop.value)
+
+
+def test_pair_can_name_the_one_device_to_approve(monkeypatch, capsys):
+    devices = FakeDevices({DESK: {"name": "Desk"}, KITCHEN: {"name": "Kitchen"}},
+                          {DESK: "ABCD2345", KITCHEN: "EFGH6789"})
+    approvals = FakeApprovals({"ABCD2345": DESK, "EFGH6789": KITCHEN})
+    _pair(monkeypatch, devices, approvals, yes=True, device="kitchen")
+    assert approvals.approved == {KITCHEN}
+
+    with pytest.raises(SystemExit) as stop:
+        _pair(monkeypatch, devices, FakeApprovals({"ABCD2345": DESK}), yes=True, device="hg-0000000000000000")
+    assert "is not waiting to pair" in str(stop.value)
