@@ -121,8 +121,7 @@ void dispatch(hg::App& app, hgp::Event& ev) {
       app.on_mic_samples(reinterpret_cast<const int16_t*>(ev.data), ev.len / sizeof(int16_t));
       break;
     case EventType::Console:
-      ev.console->reply = app.console(std::string_view(text ? text : "", ev.len));
-      xSemaphoreGive(ev.console->done);
+      ev.console->answer(app.console(std::string_view(text ? text : "", ev.len)));
       break;
     case EventType::Touch:
       if (g_gestures && ev.len == sizeof(hgp::TouchSample)) {
