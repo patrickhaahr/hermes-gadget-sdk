@@ -28,6 +28,12 @@
 | Voice is not transcribed | Configure speech recognition on the Hermes computer |
 | Replies are text only | Configure TTS, check that `speak_replies` is not `false`, and enable simulator live audio. Non-WAV TTS needs `ffmpeg` on the Hermes computer |
 
+## Screen
+
+| Symptom | What to check |
+|---|---|
+| Screen freezes while voice, Wi-Fi and touch keep working | [Save a board report](#save-a-board-report). `LCD transfer timed out` in its log means the panel's SPI transfer did not finish; the screen resumes by itself if it does. `LCD transfer failed` stops the screen until the board restarts. Restart the board and send the report with a bug report |
+
 ## Save a board report
 
 The [browser installer](https://adolanium.github.io/hermes-gadget-sdk/installer.html) can save a report under **Troubleshooting**, **Something else**, **Save a diagnostics report**. It includes the board status and recent log.
