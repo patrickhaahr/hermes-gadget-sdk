@@ -21,6 +21,7 @@ hgp::NvsStorage g_storage;
 hgp::WsTransport g_transport;
 hgp::SpiDisplay g_display;
 hgp::ParallelDisplay g_parallel;
+hgp::RgbDisplay g_rgb;
 hgp::AmoledDisplay g_amoled;
 hgp::I2sMic g_mic;
 hgp::I2sSpeaker g_speaker;
@@ -134,6 +135,16 @@ void dispatch(hg::App& app, hgp::Event& ev) {
         app.on_button(hg::Button::Cancel, reinterpret_cast<const hgp::KeySample*>(ev.data)->pressed);
       }
       break;
+    case EventType::Encoder:
+      if (ev.len == sizeof(hgp::EncoderSample)) {
+        // A detent is a press and a release, so turning keeps scrolling after
+        // the first detent wakes the screen.
+        const auto* encoder = reinterpret_cast<const hgp::EncoderSample*>(ev.data);
+        const hg::Button button = encoder->direction > 0 ? hg::Button::Up : hg::Button::Down;
+        app.on_button(button, true);
+        app.on_button(button, false);
+      }
+      break;
   }
 }
 
@@ -177,7 +188,9 @@ extern "C" void app_main(void) {
   if (board.cores3 && peripherals_ready)
     g_display.board_backlight = [](uint8_t percent) { g_cores3.set_backlight(percent); };
   if (peripherals_ready && board.lcd.enabled) {
-    if (board.lcd.bus.type == hgp::LcdBus::Type::I80) {
+    if (board.lcd.bus.type == hgp::LcdBus::Type::Rgb) {
+      if (g_rgb.begin(board.lcd, i2c_bus)) hal.display = &g_rgb;
+    } else if (board.lcd.bus.type == hgp::LcdBus::Type::I80) {
       if (g_parallel.begin(board.lcd, hgp::lcd_power_pin(board))) hal.display = &g_parallel;
     } else if (g_display.begin(board.lcd, i2c_bus)) {
       hal.display = &g_display;
@@ -195,12 +208,13 @@ extern "C" void app_main(void) {
     if (g_codec_speaker.begin(g_codec.out(), board.codec.stereo32, board.codec.speaker_pa ? board.codec.pa : -1)) hal.speaker = &g_codec_speaker;
   }
   g_buttons.begin(board.buttons);
-  const bool touch = peripherals_ready && (board.touch.enabled || board.pwr_key.enabled) &&
-                     g_touch.begin(board.touch, board.pwr_key, i2c_bus);
+  const bool touch = peripherals_ready && (board.touch.enabled || board.pwr_key.enabled || board.encoder.a >= 0) &&
+                     g_touch.begin(board.touch, board.pwr_key, board.encoder, i2c_bus);
 
   hgp::diag::Parts parts;
   parts.display = hal.display == &g_display ? g_display.controller_name()
                       : hal.display == &g_parallel ? "st7789-i80"
+                      : hal.display == &g_rgb ? "st7701-rgb"
                       : hal.display == &g_amoled ? "co5300"
                                                 : "none";
   parts.mic = hal.mic == &g_codec_mic ? "es7210" : hal.mic == &g_mic ? "i2s" : "none";
@@ -220,7 +234,7 @@ extern "C" void app_main(void) {
   profile.default_server_url = CONFIG_HG_DEFAULT_SERVER_URL;
   profile.default_access_token = CONFIG_HG_DEFAULT_ACCESS_TOKEN;
   profile.has_cancel_button = board.buttons.cancel >= 0 || touch;
-  profile.has_scroll_buttons = board.buttons.up >= 0 && board.buttons.down >= 0;
+  profile.has_scroll_buttons = (board.buttons.up >= 0 && board.buttons.down >= 0) || board.encoder.a >= 0;
   profile.talk_label = board.talk_label;
   profile.cancel_label = board.cancel_label;
   if (touch && board.touch.enabled) {
