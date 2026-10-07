@@ -171,6 +171,7 @@ extern "C" void app_main(void) {
              kPsramMode);
   }
 #endif
+  g_updater.expect_board(board.name);
   g_updater.start();  // a new firmware on probation starts its clock now
 
   // Wi-Fi first: the radio is the entropy source for the device key.
