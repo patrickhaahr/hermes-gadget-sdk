@@ -20,11 +20,11 @@ import android.widget.TextView
  * Connection settings and maintenance. Also scriptable over adb:
  *
  *     adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup \
- *         --es server ws://zaza:8765/gadget --es name "Robot head" [--es token SECRET]
+ *         --es server ws://zaza:8765/gadget --es name "'Robot head'" [--es token SECRET]
  *
  * and for the core's console commands, answered in the log (`adb logcat -s HermesGadget`):
  *
- *     adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es console "set screen_timeout 60"
+ *     adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es console "'set screen_timeout 60'"
  */
 class SetupActivity : Activity() {
     private lateinit var server: EditText

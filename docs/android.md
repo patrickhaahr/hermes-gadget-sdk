@@ -41,10 +41,10 @@ Run `hermes gadget info` on the Hermes host for the gadget URL, then send it to 
 
 ```bash
 adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup \
-    --es server ws://192.168.1.20:8765/gadget --es name "Robot head"
+    --es server ws://192.168.1.20:8765/gadget --es name "'Robot head'"
 ```
 
-Add `--es token SECRET` if the host sets `GADGET_ACCESS_TOKEN`. You can also open the app and type the same values on its settings screen.
+The phone's shell splits the command again, so a name with spaces needs both sets of quotes. Add `--es token SECRET` if the host sets `GADGET_ACCESS_TOKEN`. You can also open the app and type the same values on its settings screen.
 
 The phone shows a pairing code. Approve it on the Hermes host with `hermes gadget pair`. Over Tailscale, use the host's tailnet name or address in the URL. For other networks, see [Connect from another network](tailscale-funnel.md).
 
@@ -59,6 +59,7 @@ adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es server ws:
 ## Use it
 
 - **Talk:** hold the screen while you speak, then release to send. Swipe down to cancel. The core's other touch gestures work as on [touch boards](using-gadget.md).
+- **Microphone switch:** if Android's microphone privacy switch is off, recordings are silent and Android asks to unblock the microphone the first time you talk. Leave the switch on for a dedicated device.
 - **Listen:** replies play through the phone's speaker. Text and status show on screen.
 - **Screen off:** the gadget keeps its connection and microphone with the screen off. Once the core's screen timeout puts the display to sleep, Android may turn the screen off. A touch wakes it. The timeout is off by default; see [Console commands](#console-commands).
 - **Background running:** the app runs as a foreground service with a notification. On phones that close background apps aggressively, open the settings screen and choose **Allow running in the background**.
@@ -80,7 +81,7 @@ The device key stays in the app's private storage and is excluded from backups a
 The core's console commands that the other ports take over USB serial, such as `status` or `set screen_timeout 60`, go through adb. Each answer appears in the log:
 
 ```bash
-adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es console "set screen_timeout 60"
+adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es console "'set screen_timeout 60'"
 adb logcat -s HermesGadget
 ```
 
