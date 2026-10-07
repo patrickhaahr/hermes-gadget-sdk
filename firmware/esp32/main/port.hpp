@@ -21,6 +21,7 @@
 #include "cores3.hpp"
 #include "shared_reply.hpp"
 #include "speaker_pa.hpp"
+#include "tag_scanner.hpp"
 #include "driver/i2c_master.h"
 #include "driver/i2s_std.h"
 #include "esp_codec_dev.h"
@@ -105,7 +106,7 @@ class NvsStorage final : public hg::Storage {
  public:
   bool begin();
   std::optional<std::string> get(std::string_view key) override;
-  void set(std::string_view key, std::string_view value) override;
+  bool set(std::string_view key, std::string_view value) override;
   void erase(std::string_view key) override;
 
  private:
@@ -396,6 +397,8 @@ class EspUpdater final : public hg::Updater {
  public:
   // Looks at the running image: if it is on probation, starts the rollback clock.
   void start();
+  // The board name an image must carry (HGBOARD=<name>) to be installed.
+  void expect_board(const char* name) { board_ = name ? name : ""; }
   size_t capacity() const override;
   bool begin(size_t size, std::string& error) override;
   bool write(const uint8_t* data, size_t len, std::string& error) override;
@@ -409,6 +412,8 @@ class EspUpdater final : public hg::Updater {
 
  private:
   static constexpr size_t kHeadBytes = 112;  // image + segment headers, then the app description up to its project name
+  std::string board_;
+  hg::TagScanner board_tag_{"HGBOARD="};
   const void* target_ = nullptr;             // esp_partition_t
   uint32_t handle_ = 0;                      // esp_ota_handle_t
   bool open_ = false;
