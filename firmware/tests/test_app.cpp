@@ -1340,7 +1340,6 @@ TEST("Wi-Fi setup: the screen carries a scannable code for the temporary network
     hg::WifiSetupAp ap;
     ap.ssid = "Hermes-test";
     ap.password = "private-setup-key";
-    ap.url = "http://192.168.4.1";
     return ap;
   };
   CHECK(r.app.start_wifi_setup());
@@ -1398,6 +1397,38 @@ TEST("Wi-Fi setup: the code is drawn inside the content band, dark on light") {
   }
   CHECK(black > 100);        // the modules
   CHECK(white > black / 2);  // the panel and quiet zone around them
+}
+
+// The setup screen as the ESP32 port fills it, rendered with or without a code.
+static std::vector<uint16_t> setup_screen(int width, int height, bool round, const hg::qr::Code* code) {
+  FakeHal display;
+  if (round) {
+    display.make_round(width);
+  } else {
+    display.width = width;
+    display.height = height;
+    display.fb.assign(static_cast<size_t>(width * height), 0);
+  }
+  hg::Ui ui(display);
+  hg::UiModel m;
+  m.screen = hg::Screen::Setup;
+  m.headline = "Wi-Fi setup";
+  m.detail = "Connect your phone";
+  m.body = "Network: Hermes-A1B2\nPassword: 3f9c2a1b4d5e6f70\nOpen http://192.168.4.1\nAvailable for 10 minutes.";
+  m.qr = code;
+  ui.render(m);
+  return display.fb;
+}
+
+TEST("Wi-Fi setup: a code that does not fit beside the instructions leaves the text screen") {
+  const hg::qr::Code code = hg::qr::encode(hg::qr::payload("Hermes-A1B2", "3f9c2a1b4d5e6f70"));
+  // 128x128 (AIPI Lite) and 320x240 (BOX-3, CoreS3): the instructions take the room
+  // a scannable code needs, so the screen is the text one, pixel for pixel.
+  CHECK(setup_screen(128, 128, false, &code) == setup_screen(128, 128, false, nullptr));
+  CHECK(setup_screen(320, 240, false, &code) == setup_screen(320, 240, false, nullptr));
+  // 240x240 and the 466 round panel fit the code beside every instruction line.
+  CHECK(setup_screen(240, 240, false, &code) != setup_screen(240, 240, false, nullptr));
+  CHECK(setup_screen(466, 466, true, &code) != setup_screen(466, 466, true, nullptr));
 }
 
 TEST("Wi-Fi setup: opening from USB releases an active talk button") {

@@ -4,7 +4,7 @@
 
 ### Hardware and setup
 
-- Show a QR code on the Wi-Fi setup screen so a phone camera can join the gadget's temporary network and open the setup page in one step. The code encodes the network name and password with the standard `WIFI:` scheme; the credentials remain printed as text for phones that cannot scan. Boards that do not provide the credentials keep the text-only screen.
+- Show a QR code on the Wi-Fi setup screen so a phone camera can join the gadget's temporary network without typing. The code encodes the network name and password with the standard `WIFI:` scheme. The instructions stay printed beside it, since the phone still opens the setup address and some phones cannot scan. Screens without room for a scannable code beside the instructions keep the text-only screen.
 
 ## 0.2.0
 

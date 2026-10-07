@@ -100,7 +100,7 @@ class Ui {
   void draw_top(Canvas& c, const UiModel& m);
   void draw_header(Canvas& c, const UiModel& m);
   void draw_content(Canvas& c, const UiModel& m);
-  void draw_qr(Canvas& c, const UiModel& m, int y0, int y1);
+  bool draw_qr(Canvas& c, const UiModel& m, int y0, int y1);
   void draw_bottom(Canvas& c, const UiModel& m);
   void draw_indicator(Canvas& c, const UiModel& m, int cx, int cy, int r);
   struct HeroGeom {

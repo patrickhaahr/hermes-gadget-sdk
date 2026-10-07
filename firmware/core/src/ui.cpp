@@ -422,10 +422,7 @@ void Ui::draw_content(Canvas& c, const UiModel& m) {
     return;
   }
 
-  if (m.qr && m.qr->ok()) {
-    draw_qr(c, m, y0, y1);
-    return;
-  }
+  if (m.qr && m.qr->ok() && draw_qr(c, m, y0, y1)) return;
 
   if (m.screen == Screen::Boot) {
     int big = s + 2;
@@ -475,10 +472,9 @@ void Ui::draw_content(Canvas& c, const UiModel& m) {
 // A Wi-Fi setup code: a white panel with a four-module quiet zone, one square
 // per module, at the largest integer scale that fits the content band. A phone
 // camera needs the quiet zone and dark-on-light contrast, so neither is optional.
-void Ui::draw_qr(Canvas& c, const UiModel& m, int y0, int y1) {
-  if (!m.qr) return;
+// Returns false, drawing nothing, when the code does not fit beside the text.
+bool Ui::draw_qr(Canvas& c, const UiModel& m, int y0, int y1) {
   const int n = m.qr->size;
-  if (n <= 0) return;
   const int w = info_.width;
   const int s = layout_.scale;
   const int lh = Canvas::line_height(s);
@@ -486,32 +482,22 @@ void Ui::draw_qr(Canvas& c, const UiModel& m, int y0, int y1) {
   const int pad = 4;                     // quiet zone, in modules
   const int cells = n + 2 * pad;         // the code plus its quiet zone
   const int avail_h = y1 - y0 - 2 * margin;
-  const int max_scale = std::min((w - 2 * margin) / cells, avail_h / cells);
 
-  // The code is the shortcut; the printed credentials are the fallback for a
-  // phone that cannot scan, so keep the SSID and password visible when there is
-  // room. Text never shrinks the code below kMinScale: a code that small is not
-  // reliably scannable, and the text alone then carries the details.
+  // The code only joins the network: the phone still needs the address, and a
+  // phone that cannot scan needs the name and password. So every line of the
+  // instructions stays on screen, and the code is shown only where it fits
+  // beside them at kMinScale or larger, below which it is not reliably
+  // scannable. Otherwise the caller draws the text-only screen.
   constexpr int kMinScale = 3;
-  constexpr int kMaxTextRows = 3;
   const std::vector<std::string> lines = wrap_text(m.body, layout_.body_cols);
-  int text_rows = std::min(static_cast<int>(lines.size()), kMaxTextRows);
-  int scale = max_scale;
-  for (; text_rows > 0; --text_rows) {
-    const int reserve = text_rows * lh + 2 * s;
-    scale = std::min((w - 2 * margin) / cells, (avail_h - reserve) / cells);
-    if (scale >= kMinScale) break;
-  }
-  if (text_rows == 0) scale = max_scale;
-  if (scale < 2) {
-    // No room for a scannable code: fall back to the credentials as text.
-    c.text(margin, y0 + margin, "Screen too small for a code", s, kDim);
-    return;
-  }
+  const int text_rows = static_cast<int>(lines.size());
+  const int reserve = text_rows ? text_rows * lh + 2 * s : 0;
+  const int scale = std::min((w - 2 * margin) / cells, (avail_h - reserve) / cells);
+  if (scale < kMinScale) return false;
 
   const int side = cells * scale;
   const int x0 = (w - side) / 2;
-  const int block = side + (text_rows ? text_rows * lh + 2 * s : 0);
+  const int block = side + reserve;
   const int py0 = y0 + margin + std::max(0, (avail_h - block) / 2);
   c.fill_rect(x0, py0, side, side, rgb565(255, 255, 255));
   for (int y = 0; y < n; ++y) {
@@ -526,6 +512,7 @@ void Ui::draw_qr(Canvas& c, const UiModel& m, int y0, int y1) {
     c.text((w - Canvas::text_width(lines[static_cast<size_t>(i)], s)) / 2, ty, lines[static_cast<size_t>(i)], s, kDim);
     ty += lh;
   }
+  return true;
 }
 
 Ui::HeroGeom Ui::hero_geom(const UiModel& m) const {

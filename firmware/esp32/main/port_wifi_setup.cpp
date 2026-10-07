@@ -144,7 +144,6 @@ hg::WifiSetupAp Wifi::setup_ap() {
   if (!accepting_setup_) return ap;
   ap.ssid = ap_name_;
   ap.password = ap_password_;
-  ap.url = "http://192.168.4.1";
   return ap;
 }
 

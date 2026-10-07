@@ -62,11 +62,10 @@ struct Action {
 };
 
 // The temporary Wi-Fi setup network, as the port knows it. Lets the setup
-// screen show a scannable code instead of the credentials as text.
+// screen show a scannable code beside the credentials.
 struct WifiSetupAp {
   std::string ssid;
   std::string password;
-  std::string url;  // where the phone should browse, e.g. http://192.168.4.1
 };
 
 class App {
