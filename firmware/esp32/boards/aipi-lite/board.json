@@ -1,6 +1,6 @@
 {
-  "title": "AIPI Lite (Xorigin)",
-  "summary": "128x128 screen, ES8311 codec, battery; push-to-talk AI gadget.",
-  "docs": "docs/hardware.md",
-  "ready_made": false
+  "title": "Xorigin AIPI Lite",
+  "summary": "128x128 screen, one ES8311 codec for speaker and microphone, BOOT and power keys. Experimental.",
+  "docs": "docs/hardware.md#xorigin-aipi-lite",
+  "ready_made": true
 }

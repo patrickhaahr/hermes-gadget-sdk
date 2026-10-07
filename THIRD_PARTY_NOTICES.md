@@ -54,6 +54,8 @@ revision `ec889e789b3cf093412689a143f7f37b42b56af7`, MIT, Copyright (c) 2022 Xin
 The ESP-IDF adaptation and timing changes are recorded in [NOTICE](NOTICE), with
 the upstream license in [LICENSES/LilyGO-MIT.txt](LICENSES/LilyGO-MIT.txt).
 
+The AIPI Lite pin map, panel settings and power wiring follow [xiaozhi-esp32's `xorigin/aipi-lite` board](https://github.com/78/xiaozhi-esp32/tree/0d576d3d4c049c6f55eaf879725dc23e516511b4/main/boards/xorigin/aipi-lite) at commit `0d576d3d4c049c6f55eaf879725dc23e516511b4` (MIT). Only hardware facts are used; see [NOTICE](NOTICE).
+
 ## Release packages
 
 Firmware packages include `hermes-gadget-<version>-licenses.zip` with this document, the project's notices, license texts, and notices found in the installed ESP-IDF and managed component sources. The browser installer links that archive when the release supplies it.

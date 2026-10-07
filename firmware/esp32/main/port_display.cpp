@@ -146,7 +146,7 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
 
   esp_lcd_panel_dev_config_t panel_cfg = {};
   panel_cfg.reset_gpio_num = static_cast<gpio_num_t>(cfg.rst);
-  panel_cfg.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
+  panel_cfg.rgb_ele_order = cfg.bgr ? LCD_RGB_ELEMENT_ORDER_BGR : LCD_RGB_ELEMENT_ORDER_RGB;
   panel_cfg.bits_per_pixel = 16;
   panel_cfg.flags.reset_active_high = cfg.reset_active_high;
   ili9341_vendor_config_t vendor = {};

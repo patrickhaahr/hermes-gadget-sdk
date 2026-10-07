@@ -29,6 +29,11 @@ bool LatchPower::begin(const LatchPowerConfig& cfg) {
     if (gpio_config(&input) != ESP_OK) return false;
   }
 
+  if (cfg.adc < 0) {
+    // The latch and power-off work without a battery reading.
+    ESP_LOGI("hg.power", "battery latch enabled; no battery voltage reading");
+    return true;
+  }
   adc_unit_t unit;
   if (adc_oneshot_io_to_channel(cfg.adc, &unit, &channel_) != ESP_OK) return false;
   adc_oneshot_unit_init_cfg_t init = {};

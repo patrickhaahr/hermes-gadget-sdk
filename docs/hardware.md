@@ -338,6 +338,45 @@ A smoke test on a V2 board confirmed the boot, the display and the I2C devices, 
 
 The CO5300 start-up table comes from Waveshare's [board support package](https://github.com/waveshareteam/Waveshare-ESP32-components/tree/9f4030c6e5cb888ad4cc268bfa7584c93ad53e30/bsp/esp32_s3_touch_amoled_1_8) at commit `9f4030c`; see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
 
+## Xorigin AIPI Lite
+
+Board option `aipi-lite`, for Xorigin's AIPI Lite: an ESP32-S3 with 16 MB flash and 8 MB octal PSRAM, a 128×128 ST7789 panel, one ES8311 codec for both the speaker and the microphone, BOOT and power keys, and a battery. This port is experimental.
+
+**Back up the factory data before the first flash.** The AIPI Lite keeps its credentials for Xorigin's own service in a factory partition at `0x9000`, where this firmware's settings start, so flashing Hermes Gadget overwrites it. Save it first:
+
+```bash
+esptool.py --chip esp32s3 read_flash 0x9000 16384 nvsfactory.bin
+```
+
+| Part | Chip | Connection |
+|---|---|---|
+| Display | ST7789, SPI | MOSI 17, SCLK 16, CS 15, DC 7, RST 18; 20 MHz, BGR; backlight GPIO 3 |
+| Speaker DAC + microphone ADC | ES8311 | I2C 0x18 on SDA 5, SCL 4; I2S MCLK 6, BCLK 14, WS 12, DOUT 11, DIN 13; amplifier enable 9 |
+| Power | | GPIO 10 latches the supply on and powers the codec; charge signal on GPIO 8; battery divider on GPIO 2 (ADC1 channel 1) |
+| Keys | | BOOT GPIO 42 (TALK), power GPIO 1 (CANCEL) |
+
+The battery level and charging state aren't reported yet: the divider ratio on GPIO 2 hasn't been measured, and the charge signal's polarity isn't confirmed.
+
+**Build and flash it** with PlatformIO:
+
+```bash
+cd firmware/esp32
+pio run -e aipi-lite -t upload -t monitor
+```
+
+The profile expects the USB-C port to be the S3's own USB Serial/JTAG, used for flashing and the serial console. That is inferred from the pin map and not yet confirmed on a board.
+
+### First flash: what to check
+
+1. **Boot log:** `battery latch enabled; no battery voltage reading` and `codecs: speaker ready, microphones ready (es8311 analog)`. The `hg.diag` parts line should read `display st7789, microphone es8311, speaker es8311`.
+2. **Screen:** the mascot is upright and not mirrored, and the colors are right (amber accents, not blue). Swapped red and blue means `lcd.bgr` in `board.cpp` is wrong.
+3. **Microphone:** hold BOOT and speak; the waves move with your voice and Hermes's transcript is right.
+4. **Speaker:** replies are clear and loud enough (`set volume 80`).
+5. **Power:** unplug USB with the battery in, and the device stays on. **Power off** in settings turns it off.
+6. **Console:** `hermes-gadget diag` answers over the USB-C port.
+
+The pin map follows xiaozhi-esp32's `xorigin/aipi-lite` board at commit `0d576d3`; see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
+
 ## Build and flash
 
 **No toolchain needed:** the [browser installer](https://adolanium.github.io/hermes-gadget-sdk/) flashes each release's prebuilt firmware from Chrome or Edge, then sets up Wi-Fi and pairing. The release files are also on the [releases page](https://github.com/Adolanium/hermes-gadget-sdk/releases), for `esptool.py write_flash 0x0 hermes-gadget-<board>-<version>.bin`, which also erases the board's settings.

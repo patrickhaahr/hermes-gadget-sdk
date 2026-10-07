@@ -333,7 +333,7 @@ BoardConfig make() {
 #elif CONFIG_HG_BOARD_AIPI_LITE
 // AIPI Lite (Xorigin): 128x128 ST7789-family SPI panel, one ES8311 codec doing
 // both directions on a single duplex I2S bus, BOOT (GPIO42) and power (GPIO1)
-// keys, battery gauge on ADC1_CH1 with power latch on GPIO10.
+// keys, and a power latch on GPIO10.
 // Pins: xiaozhi-esp32 board xorigin/aipi-lite (upstream mapping).
 BoardConfig make() {
   BoardConfig b{};
@@ -353,6 +353,8 @@ BoardConfig make() {
   b.lcd.dc = 7;
   b.lcd.rst = 18;
   b.lcd.backlight = 3;
+  b.lcd.bgr = true;      // upstream drives the panel in BGR order
+  b.lcd.spi_mhz = 20;    // and at 20 MHz
   b.i2c = {5, 4, 400000};
   b.codec.enabled = true;
   b.codec.mclk = 6;
@@ -362,8 +364,11 @@ BoardConfig make() {
   b.codec.din = 13;
   b.codec.pa = 9;
   b.codec.mic = MicCodec::Es8311;
-  // Power rail: GPIO10 must latch high before the ES8311 on I2C answers.
-  b.latch_power = {true, 1, 10, 8};
+  // Power rail: GPIO10 must latch high before the ES8311 on I2C answers. The
+  // battery divider on GPIO2 (ADC1_CH1) is not measured yet, and upstream reads
+  // the GPIO8 charge signal active-high where LatchPower expects active-low, so
+  // neither is reported for now.
+  b.latch_power = {true, -1, 10, -1};
   b.buttons = {42, 1, -1, -1};
   b.talk_label = "BOOT";
   b.cancel_label = "PWR";
