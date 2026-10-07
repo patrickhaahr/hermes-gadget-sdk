@@ -1217,6 +1217,51 @@ TEST("power: idle screen dims, sleeps and consumes the wake input without record
   CHECK_EQ(r.fake.brightness, 100);
 }
 
+TEST("power: an idle settings menu sleeps on every view; the wake input restores it where it was") {
+  Rig r;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("set screen_timeout 30"), std::string("@ok screen_timeout"));
+  CHECK(r.app.open_settings());
+  CHECK_EQ(r.app.model().detail, std::string("Speaker volume"));
+  r.advance(15000);
+  CHECK_EQ(r.fake.brightness, 10);  // dims halfway, menu still open
+  r.advance(15000);
+  CHECK_EQ(r.fake.brightness, 0);   // and goes dark: no settings view holds the display awake
+  CHECK(r.app.settings_open());
+  // The first input only wakes; the menu is still open, on the same item.
+  r.app.on_button(hg::Button::Talk, true);
+  CHECK_EQ(r.fake.brightness, 100);
+  CHECK(r.app.settings_open());
+  CHECK_EQ(r.app.model().detail, std::string("Speaker volume"));
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.fake.last("audio.start") == nullptr);
+  // A running hardware check sleeps too: the meter pauses while dark and the
+  // wake input brings the same check back.
+  for (int i = 0; i < 3; ++i) r.app.console("cancel");
+  CHECK_EQ(r.app.model().detail, std::string("Microphone check"));
+  r.app.console("talk");
+  r.app.console("release");
+  CHECK(r.fake.mic_on);
+  r.advance(15000);
+  CHECK_EQ(r.fake.brightness, 10);
+  r.advance(15000);
+  CHECK_EQ(r.fake.brightness, 0);   // sleeps even with the meter running
+  CHECK(r.fake.mic_on);             // the check itself keeps running
+  r.app.on_button(hg::Button::Talk, true);
+  CHECK_EQ(r.fake.brightness, 100);
+  CHECK_EQ(r.app.model().detail, std::string("Microphone check"));  // same check restored
+  r.app.on_button(hg::Button::Talk, false);
+  r.app.console("cancel");
+  // Wi-Fi setup is not the settings menu: the user is copying instructions.
+  r.app.console("settings close");
+  CHECK(!r.app.settings_open());
+  r.app.on_wifi_setup = [] { return "Temporary setup network"; };
+  CHECK(r.app.start_wifi_setup());
+  r.advance(30000);
+  CHECK_EQ(r.fake.brightness, 100);
+}
+
 TEST("power: failed readings replace stale data and shutdown requires a second local selection") {
   struct Battery : hg::Power {
     bool failed = false;
