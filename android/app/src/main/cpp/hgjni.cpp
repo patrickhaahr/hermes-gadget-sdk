@@ -391,19 +391,24 @@ HG_JNI(void, setSensor)(JNIEnv* env, jobject, jlong handle, jbyteArray name, jdo
   hgsim_set_sensor(sim(env, handle), text(env, name).c_str(), value);
 }
 
+// Console commands act (`say` sends a message), so each runs exactly once: the
+// reply is read into a buffer sized for the longest one, and cut if it is longer.
+static constexpr size_t kReplyCap = 16384;
+
+static jbyteArray reply(JNIEnv* env, const std::vector<char>& out, int n) {
+  size_t len = n < 0 ? 0 : static_cast<size_t>(n);
+  return bytes(env, out.data(), len < out.size() ? len : out.size() - 1);
+}
+
 HG_JNI(jbyteArray, console)(JNIEnv* env, jobject, jlong handle, jbyteArray line) {
   std::string l = text(env, line);
-  int n = hgsim_console(sim(env, handle), l.c_str(), nullptr, 0);
-  std::vector<char> out(static_cast<size_t>(n) + 1);
-  hgsim_console(sim(env, handle), l.c_str(), out.data(), out.size());
-  return bytes(env, out.data(), static_cast<size_t>(n));
+  std::vector<char> out(kReplyCap);
+  return reply(env, out, hgsim_console(sim(env, handle), l.c_str(), out.data(), out.size()));
 }
 
 HG_JNI(jbyteArray, status)(JNIEnv* env, jobject, jlong handle) {
-  int n = hgsim_status(sim(env, handle), nullptr, 0);
-  std::vector<char> out(static_cast<size_t>(n) + 1);
-  hgsim_status(sim(env, handle), out.data(), out.size());
-  return bytes(env, out.data(), static_cast<size_t>(n));
+  std::vector<char> out(kReplyCap);
+  return reply(env, out, hgsim_status(sim(env, handle), out.data(), out.size()));
 }
 
 HG_JNI(jbyteArray, screen)(JNIEnv* env, jobject, jlong handle) { return bytes(env, hgsim_screen(sim(env, handle))); }
