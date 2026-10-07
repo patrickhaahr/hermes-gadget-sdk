@@ -82,6 +82,42 @@ The USB-C port is the S3's own USB Serial/JTAG, so flashing and the serial conso
 4. **Speaker:** replies are clear and loud enough (`set volume 80`); no hiss between replies.
 5. **Buttons:** BOOT holds to talk, PLUS cancels, and holding PLUS for 2 s starts a new conversation.
 
+## Waveshare ESP32-S3-Touch-LCD-1.85C V2
+
+Use `esp32s3-touch-lcd-185c-v2` for the V2 board, PCB Rev2.0: an ESP32-S3R8 with 16 MB flash and 8 MB octal PSRAM, a round 360×360 ST77916 LCD over QSPI, CST816 touch, an ES8311 DAC, an ES7210 microphone ADC with two microphones and an NS4150B amplifier. A V2 board says Rev2.0 on the PCB or has a V2 sticker on the case. V1 has different audio hardware and must not use this image. The standard SKU needs a speaker on the SPK connector; the speaker-box version includes one. This port is experimental; see the [partial physical report](hardware-validation.md#waveshare-185c-v2-partial-physical-report).
+
+| Part | Connection |
+|---|---|
+| ST77916 LCD, QSPI | CS 21, clock 40, D0–D3 46/45/42/41, backlight 5 (LEDC); reset through TCA9554 P1 |
+| CST816 touch | I2C 0x15, polled; reset through TCA9554 P0 |
+| TCA9554 expander | I2C 0x20; the firmware changes only P0 and P1 |
+| I2C | SDA 11, SCL 10, 400 kHz |
+| ES8311 speaker / ES7210 microphones | I2C 0x18 / 0x40; MCLK 2, BCLK 48, WS 38, DOUT 47, DIN 39; amplifier enable 15 |
+| BOOT | GPIO 0, TALK |
+
+**Audio.** Each I2S frame has two 32-bit slots. The ES7210 packs four 16-bit channels into them: the speaker's playback reference, a microphone, an unused channel and the second microphone. The firmware averages the two microphones into mono and ignores the reference, so there is no echo cancellation. The amplifier is on only while audio plays. Start with a low volume.
+
+Hold the screen or BOOT to talk, tap to answer yes, and swipe down to cancel. RESET is not a CANCEL button. The IMU, RTC, TF card and battery ADC are not used, and the battery switch keeps its hardware function.
+
+```bash
+cd firmware/esp32
+pio run -e esp32s3-touch-lcd-185c-v2 -t upload -t monitor
+```
+
+For ESP-IDF, use `SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/waveshare-esp32-s3-touch-lcd-1.85c-v2/sdkconfig.defaults"` with a separate build directory and sdkconfig. The USB-C port handles flashing and the serial console (115200 baud). The `sim-360x360-round` simulator board has the same screen.
+
+### First flash: what to check
+
+1. **Boot log:** `expander resets 0x03 ready`, `ST77916 panel ID …`, `st77916 360x360 ready`, `codecs: speaker ready, microphones ready` and `touch ready`. An unknown panel ID leaves the display off. In `hermes-gadget diag`, the `i2c` list has `0x15`, `0x18`, `0x20` and `0x40`.
+2. **Screen:** the mascot is centred, upright and not mirrored, the whole circle is visible, and the accents are amber, not blue. Brightness and screen timeout work.
+3. **Touch:** holding the centre and each edge starts a recording; a tap answers yes and a swipe down cancels.
+4. **Microphone:** the waves move with your voice and Hermes's transcript is right.
+5. **Speaker:** replies are clear, with no hiss or pop between them. Cancelling a reply stops it at once, and the next reply plays.
+
+Record the results with the [hardware checklist](hardware-validation.md#record-a-physical-test).
+
+References: [Waveshare V2 documentation](https://docs.waveshare.com/ESP32-S3-Touch-LCD-1.85C), [V2 schematic](https://files.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.85C/ESP32-S3-Touch-LCD-1.85C_V2.pdf) and the [factory demo at 8ead4a96](https://github.com/waveshareteam/ESP32-S3-Touch-LCD-1.85C/tree/8ead4a96bf3a278fc4ebd8ef4768657e17fa2880). The demo numbers the expander pins from one (EXIO1 is P0). The LCD initialization tables and their licenses are listed in [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
+
 ## ESP32-S3-BOX-3
 
 Use `esp32-s3-box-3` for Espressif's BOX-3 with 16 MB flash and 16 MB octal PSRAM. The original BOX and BOX-Lite need different profiles. This port is experimental, with no physical report recorded.
