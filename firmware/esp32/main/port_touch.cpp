@@ -1,6 +1,7 @@
-// Touch controllers and a key mirrored on a TCA9554 expander, polled over
-// I2C from their own task. Samples become Touch and Key events; the app task
-// turns them into gestures (hg::TouchGestures) and button presses.
+// Touch controllers, a key mirrored on a TCA9554 or PCF8574 expander and a
+// rotary encoder, polled from their own task. Samples become Touch, Key and
+// Encoder events; the app task turns them into gestures (hg::TouchGestures)
+// and button presses.
 #include "port.hpp"  // first: pulls in FreeRTOS.h ahead of task.h/queue.h
 
 #include <algorithm>
@@ -23,7 +24,8 @@ constexpr uint8_t kCstAck = 0xAB;
 
 }  // namespace
 
-bool TouchInput::begin(const TouchConfig& touch, const ExpanderKeyConfig& key, i2c_master_bus_handle_t bus) {
+bool TouchInput::begin(const TouchConfig& touch, const ExpanderKeyConfig& key, const EncoderConfig& encoder,
+                       i2c_master_bus_handle_t bus) {
   if (!bus) return false;
   touch_ = touch;
   key_ = key;
@@ -77,10 +79,28 @@ bool TouchInput::begin(const TouchConfig& touch, const ExpanderKeyConfig& key, i
     dev.device_address = key.addr;
     dev.scl_speed_hz = 400000;
     if (i2c_master_bus_add_device(bus, &dev, &key_dev_) != ESP_OK) key_dev_ = nullptr;
+    if (key_dev_ && key.pcf8574) {
+      // A PCF8574 pin reads as an input only while its output latch is high.
+      const uint8_t release = 0xFF;
+      if (i2c_master_transmit(key_dev_, &release, 1, 50) != ESP_OK) ESP_LOGW(TAG, "PCF8574 at 0x%02x did not answer", key.addr);
+    }
   }
-  if (!has_touch() && !key_dev_) return false;
+  if (encoder.a >= 0 && encoder.b >= 0) {
+    gpio_config_t pins = {};
+    pins.pin_bit_mask = (1ULL << encoder.a) | (1ULL << encoder.b);
+    pins.mode = GPIO_MODE_INPUT;
+    pins.pull_up_en = GPIO_PULLUP_ENABLE;
+    if (gpio_config(&pins) == ESP_OK) {
+      encoder_a_ = static_cast<gpio_num_t>(encoder.a);
+      encoder_b_ = static_cast<gpio_num_t>(encoder.b);
+      encoder_state_ = static_cast<uint8_t>((gpio_get_level(encoder_a_) << 1) | gpio_get_level(encoder_b_));
+    }
+  }
+  const bool has_encoder = encoder_a_ != GPIO_NUM_NC;
+  if (!has_touch() && !key_dev_ && !has_encoder) return false;
   xTaskCreate(&TouchInput::task, "hg-touch", 3072, this, 5, nullptr);
-  ESP_LOGI(TAG, "touch %s, key %s", has_touch() ? "ready" : "off", key_dev_ ? "ready" : "off");
+  ESP_LOGI(TAG, "touch %s, key %s, encoder %s", has_touch() ? "ready" : "off", key_dev_ ? "ready" : "off",
+           has_encoder ? "ready" : "off");
   return true;
 }
 
@@ -148,9 +168,26 @@ bool TouchInput::begin_box_touch(i2c_master_bus_handle_t bus) {
 
 bool TouchInput::read_key(bool& pressed) {
   uint8_t reg = kTca9554Input, value = 0;
-  if (i2c_master_transmit_receive(key_dev_, &reg, 1, &value, 1, 20) != ESP_OK) return false;
+  const esp_err_t err = key_.pcf8574 ? i2c_master_receive(key_dev_, &value, 1, 20)
+                                     : i2c_master_transmit_receive(key_dev_, &reg, 1, &value, 1, 20);
+  if (err != ESP_OK) return false;
   bool high = (value >> key_.bit) & 1;
   pressed = key_.active_high ? high : !high;
+  return true;
+}
+
+// A quadrature step table: four steps make one detent.
+bool TouchInput::sample_encoder(int& direction) {
+  direction = 0;
+  if (encoder_a_ == GPIO_NUM_NC) return false;
+  static constexpr int8_t kStep[16] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
+  const uint8_t state = static_cast<uint8_t>((gpio_get_level(encoder_a_) << 1) | gpio_get_level(encoder_b_));
+  encoder_accumulator_ = static_cast<int8_t>(encoder_accumulator_ + kStep[(encoder_state_ << 2) | state]);
+  encoder_state_ = state;
+  if (encoder_accumulator_ >= 4 || encoder_accumulator_ <= -4) {
+    direction = encoder_accumulator_ > 0 ? 1 : -1;
+    encoder_accumulator_ = 0;
+  }
   return true;
 }
 
@@ -186,6 +223,11 @@ void TouchInput::task(void* arg) {
       key_down = pressed;
       KeySample k{pressed};
       events::post(EventType::Key, &k, sizeof(k));
+    }
+    int direction = 0;
+    if (self->sample_encoder(direction) && direction) {
+      EncoderSample e{static_cast<int8_t>(direction)};
+      events::post(EventType::Encoder, &e, sizeof(e));
     }
     vTaskDelay(pdMS_TO_TICKS(kPollMs));
   }
