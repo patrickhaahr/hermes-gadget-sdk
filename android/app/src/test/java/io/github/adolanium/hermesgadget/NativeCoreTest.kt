@@ -149,6 +149,15 @@ class NativeCoreTest {
     }
 
     @Test
+    fun aConsoleCommandRunsOnce() {
+        online()
+        val before = host.sentText.count { "\"type\":\"text\"" in it }
+        val reply = NativeCore.console(handle, "say What is the capital of Denmark?".toByteArray()).decodeToString()
+        assertEquals("@ok say", reply)
+        assertEquals("one message per say", before + 1, host.sentText.count { "\"type\":\"text\"" in it })
+    }
+
+    @Test
     fun theConsoleAnswersThroughTheBridge() {
         val reply = NativeCore.console(handle, "set talk_mode tap".toByteArray()).decodeToString()
         assertTrue(reply, reply.startsWith("@ok"))
