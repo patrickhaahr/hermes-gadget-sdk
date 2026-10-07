@@ -13,6 +13,16 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- The settings screens the kiosk opens for maintenance. -->
+    <queries>
+        <intent>
+            <action android:name="android.settings.APPLICATION_DEVELOPMENT_SETTINGS" />
+        </intent>
+        <intent>
+            <action android:name="android.settings.SETTINGS" />
+        </intent>
+    </queries>
+
     <!-- The device key must stay on this phone: no backups, no device-to-device transfer.
          Plain ws:// is the default on a home network, as on the other ports. -->
     <application

@@ -10,6 +10,8 @@
     <string name="action_save">Save and connect</string>
     <string name="action_battery">Allow running in the background</string>
     <string name="battery_ok">Battery optimization is already off for this app.</string>
+    <string name="action_system_settings">Open Android settings</string>
+    <string name="screen_lock_warning">This phone has a screen lock. Android asks for it after every reboot, so the gadget can\'t start on its own. For a dedicated gadget, set Settings → Security → Screen lock to None.</string>
     <string name="action_kiosk_pause">Leave kiosk mode for now</string>
     <string name="action_kiosk_resume">Return to kiosk mode</string>
     <string name="action_kiosk_release">Stop being the device owner</string>

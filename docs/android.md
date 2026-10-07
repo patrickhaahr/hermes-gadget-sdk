@@ -27,13 +27,13 @@ For now you hold the screen to talk. Hands-free wake-word listening is not inclu
 
 Use this when the phone does nothing else. As the device owner, the app becomes the home screen, stays pinned on screen, keeps its microphone permission, and starts again after a reboot. Skip this section to run it as an ordinary app.
 
-Android allows a device owner only on a phone with no accounts. Remove every account in **Settings → Accounts** first, then run:
+Android allows a device owner only on a phone with no accounts. Remove every account in **Settings → Accounts** first. Also set **Settings → Security → Screen lock** to **None**: Android asks for a PIN, pattern or password after every reboot, before any app can start, so a phone with a screen lock waits at the lock screen instead of starting the gadget. Then run:
 
 ```bash
 adb shell dpm set-device-owner io.github.adolanium.hermesgadget/.AdminReceiver
 ```
 
-The command fails with a message about accounts or existing users if the phone isn't ready. To take the phone out of this mode, open the [settings screen](#change-the-settings) and choose **Leave kiosk mode for now** or **Stop being the device owner**.
+The command fails with a message about accounts or existing users if the phone isn't ready. The other apps stay out of reach in this mode. To reach Android's settings (for example, to turn wireless debugging back on after a reboot), open the [settings screen](#change-the-settings) and choose **Open Android settings**. To take the phone out of this mode, choose **Leave kiosk mode for now** or **Stop being the device owner** there.
 
 ## Connect to Hermes
 
@@ -72,7 +72,7 @@ Hold **volume up** for about three seconds on the gadget screen to open the sett
 adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup
 ```
 
-The settings screen shows the core's live status (phase, pairing, and server) for troubleshooting.
+The settings screen also opens Android's developer options with **Open Android settings**, even in kiosk mode, and warns when a screen lock would stop the gadget from starting after a reboot. It shows the core's live status (phase, pairing, and server) for troubleshooting.
 
 The device key stays in the app's private storage and is excluded from backups and device transfers. Uninstalling the app or clearing its data creates a new device, which must be paired again. Run `hermes gadget forget <device_id>` on the host for the old one.
 
