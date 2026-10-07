@@ -18,6 +18,8 @@ namespace {
 #define HG_BOARD_NAME "esp32-s3-box-3"
 #elif CONFIG_HG_BOARD_CORES3
 #define HG_BOARD_NAME "m5stack-cores3"
+#elif CONFIG_HG_BOARD_WS_ESP32S3_TOUCH_LCD_185C_V2
+#define HG_BOARD_NAME "waveshare-esp32-s3-touch-lcd-1.85c-v2"
 #elif CONFIG_HG_BOARD_T_DISPLAY_S3
 #define HG_BOARD_NAME "tdisplay-s3"
 #elif CONFIG_HG_BOARD_CROWPANEL_21
@@ -99,6 +101,48 @@ BoardConfig make() {
   b.pwr_key = {};  // This model has no TCA9554. PWR retains its hardware role.
   b.axp_audio_supply = true;  // ALDO1 supplies the analog audio circuit.
 #endif
+  return b;
+}
+#elif CONFIG_HG_BOARD_WS_ESP32S3_TOUCH_LCD_185C_V2
+// Rev2.0 only. Pins and RMNM audio packing: Waveshare factory demo and V2
+// schematic, pinned sources in docs/hardware.md. Not compatible with V1.
+BoardConfig make() {
+  BoardConfig b{};
+  b.name = kBoardName;
+  b.lcd.enabled = true;
+  b.lcd.controller = LcdController::St77916;
+  b.lcd.width = b.lcd.height = 360;
+  b.lcd.swap_xy = b.lcd.mirror_x = b.lcd.mirror_y = false;
+  b.lcd.round = true;
+  b.lcd.sclk = 40;
+  b.lcd.mosi = 46;
+  b.lcd.d1 = 45;
+  b.lcd.d2 = 42;
+  b.lcd.d3 = 41;
+  b.lcd.cs = 21;
+  b.lcd.backlight = 5;
+  b.lcd.spi_mhz = 80;
+  b.i2c = {11, 10, 400000};
+  b.expander_reset.mask = 0x03;  // P0 touch reset, P1 LCD reset (EXIO1/EXIO2 in the demo)
+  b.codec.enabled = true;
+  b.codec.mclk = 2;
+  b.codec.bclk = 48;
+  b.codec.ws = 38;
+  b.codec.dout = 47;
+  b.codec.din = 39;
+  b.codec.pa = 15;
+  b.codec.stereo32 = true;
+  b.codec.rmnm_mics = true;
+  b.codec.speaker_pa = true;
+  b.codec.dac_mclk = false;     // the factory demo clocks the ES8311 from BCLK
+  b.codec.es7210_mics = 0x0f;   // MIC1 playback reference, MIC2/MIC4 microphones
+  b.touch.enabled = true;
+  b.touch.controller = TouchController::Cst816;
+  b.touch.addr = 0x15;
+  b.touch.width = b.touch.height = 360;
+  b.buttons = {0, -1, -1, -1};
+  b.talk_label = "BOOT";
+  b.cancel_label = "Swipe down";
   return b;
 }
 #elif CONFIG_HG_BOARD_WS_ESP32S3_LCD_154

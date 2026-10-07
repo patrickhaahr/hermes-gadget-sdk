@@ -180,7 +180,8 @@ extern "C" void app_main(void) {
   if (latch_power) hal.power = &g_latch_power;
   if (g_updater.capacity()) hal.updater = &g_updater;
   i2c_master_bus_handle_t i2c_bus = hgp::i2c::bus(board.i2c);
-  const bool peripherals_ready = !board.cores3 || g_cores3.begin(i2c_bus);
+  const bool peripherals_ready = (!board.cores3 || g_cores3.begin(i2c_bus)) &&
+      (!board.expander_reset.mask || hgp::tca9554_reset(i2c_bus, board.expander_reset));
   if (board.cores3 && peripherals_ready)
     g_display.board_backlight = [](uint8_t percent) { g_cores3.set_backlight(percent); };
   if (peripherals_ready && board.lcd.enabled) {
@@ -200,8 +201,8 @@ extern "C" void app_main(void) {
   const bool audio_power = peripherals_ready && (!board.axp_audio_supply || g_power.enable_audio_supply());
   if (!audio_power) ESP_LOGE(TAG, "audio supply unavailable");
   if (board.codec.enabled && audio_power && g_codec.begin(board.codec, i2c_bus)) {
-    if (g_codec_mic.begin(g_codec.in())) hal.mic = &g_codec_mic;
-    if (g_codec_speaker.begin(g_codec.out())) hal.speaker = &g_codec_speaker;
+    if (g_codec_mic.begin(g_codec.in(), board.codec.rmnm_mics)) hal.mic = &g_codec_mic;
+    if (g_codec_speaker.begin(g_codec.out(), board.codec.stereo32, board.codec.speaker_pa ? board.codec.pa : -1)) hal.speaker = &g_codec_speaker;
   }
   g_buttons.begin(board.buttons);
   const bool touch = peripherals_ready && (board.touch.enabled || board.pwr_key.enabled) &&
