@@ -152,7 +152,10 @@ Ui::Ui(Display& display) : display_(display), panel_(display.info()), info_(pane
   int s = std::max(1, std::min(4, std::min(w / 160, h / 120)));
   layout_.scale = s;
   const int bar_h = Canvas::line_height(s) + 2 * s;
-  layout_.top_h = panel_.round ? std::max(36, 26 * s) : bar_h;
+  // A round panel's top band holds the link dot and one line of the settings
+  // label: 2r + 14s, and never under 36 px so the hold target stays finger-sized.
+  const int dot_r = std::max(2, 3 * s / 2 + 1);
+  layout_.top_h = panel_.round ? std::max(36, 2 * dot_r + 14 * s) : bar_h;
   layout_.bottom_h = bar_h;
   layout_.title_w = panel_.round ? std::min(w, 120 * s) : w;
   layout_.header_h = Canvas::line_height(s + 1) + 4 * s;
@@ -275,14 +278,14 @@ void Ui::draw_top(Canvas& c, const UiModel& m) {
   }
   int ty = s;
   if (panel_.round) {
-    // The settings hold target: the link dot above its label. The label's line (16s + 9s) fits the band.
+    // The settings hold target: a dim label under the link dot, with no bar
+    // behind it. The label line (2r + 4s .. 2r + 13s) fits the band.
     int r = std::max(2, 3 * s / 2 + 1);
     if (m.settings_hold) {
-      c.fill_rect((w - layout_.title_w) / 2, 0, layout_.title_w, layout_.top_h, kBar);
       const char* control = m.screen == Screen::Settings ? "BACK TO HERMES" : "SETTINGS";
-      c.text((w - Canvas::text_width(control, s)) / 2, 16 * s, control, s, kDim);
+      c.text((w - Canvas::text_width(control, s)) / 2, 2 * r + 4 * s, control, s, kDim);
     }
-    c.fill_circle(w / 2, 7 * s, r, dot);
+    c.fill_circle(w / 2, s + r, r, dot);
     return;
   }
   int label_w = Canvas::text_width(label, s);
