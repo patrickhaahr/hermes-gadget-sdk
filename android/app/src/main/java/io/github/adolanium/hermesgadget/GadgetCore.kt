@@ -28,6 +28,7 @@ class GadgetCore(
     private val onFrame: () -> Unit,
     private val onAudio: (AudioStatus) -> Unit,
     private val onStopped: (String) -> Unit,
+    private val voiceMode: () -> VoiceMode = { VoiceMode.HERMES },
 ) : NativeHost, TransportEvents {
     private val thread = HandlerThread("gadget-core").apply { start() }
     private val handler = Handler(thread.looper)
@@ -39,7 +40,10 @@ class GadgetCore(
     private var detections = 0 // core thread only
     private val audio = AudioCoordinator(Microphone(), speaker, wake, microphone, ::post,
         toCore = { samples -> if (handle != 0L) NativeCore.micSamples(handle, samples, samples.size) },
-        onStatus = ::audioChanged)
+        onStatus = ::audioChanged,
+        startRequest = { if (handle != 0L) NativeCore.startWakeRequest(handle).decodeToString() else "The gadget is not running" },
+        discardRequest = { if (handle != 0L) NativeCore.discardWakeRequest(handle) },
+        voiceMode = voiceMode)
 
     /** The microphone's owner, as last reported on the core thread. */
     @Volatile var audioStatus = audio.status

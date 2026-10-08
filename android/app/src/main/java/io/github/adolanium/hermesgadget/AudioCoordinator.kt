@@ -8,7 +8,7 @@ enum class AudioState {
     /** Listening on the phone for "Hey Hermes". The audio stays on the phone. */
     WAKE_LISTENING,
 
-    /** Hold-to-talk: the device core records and sends the audio to Hermes. */
+    /** The core owns a hold-to-talk recording or a locally buffered wake request. */
     GADGET_CAPTURE,
 
     /** The gadget is speaking, or has just finished; wake listening waits. */
@@ -28,6 +28,7 @@ data class AudioStatus(
     val lastDetectionScore: Float? = null,
     /** Why wake listening is unavailable, for [AudioState.WAKE_UNAVAILABLE]. */
     val problem: String? = null,
+    val feedback: String? = null,
 )
 
 /** The user's Microphone off choice, kept across restarts. */
@@ -54,8 +55,8 @@ interface Playback {
  * - Hold-to-talk takes the microphone from wake listening and gives it back.
  * - Wake listening stops while the gadget speaks and resumes [PLAYBACK_TAIL_MS]
  *   after, with a fresh detector, so its own speech can't wake it.
- * - A detection is only reported: it never presses a control or answers a
- *   prompt, and the wake audio goes to the detector alone.
+ * - A detection requests guarded core recording, without pressing any control.
+ *   Ordered chunks transfer from the detector at the detection chunk, never before.
  *
  * Every method runs on one thread (the core's); [post] queues work onto it.
  */
@@ -67,7 +68,11 @@ class AudioCoordinator(
     private val post: (Runnable) -> Unit,
     private val toCore: (ShortArray) -> Unit,
     private val onStatus: (AudioStatus) -> Unit,
+    private val startRequest: () -> String = { "Wake requests unavailable" },
+    private val discardRequest: () -> Unit = {},
+    private val voiceMode: () -> VoiceMode = { VoiceMode.HERMES },
 ) {
+    private var closed = false
     private var micEnabled = setting.enabled
     private var now = 0L
     private var gadgetCapture: Any? = null // token of the running hold-to-talk capture
@@ -79,9 +84,11 @@ class AudioCoordinator(
     private var captureProblem: String? = null
     private var detections = 0
     private var lastScore: Float? = null
+    private var feedback: String? = null
+    private var startingWake = false
     private var published: AudioStatus? = null
 
-    val status: AudioStatus get() = AudioStatus(state(), detections, lastScore, if (state() == AudioState.WAKE_UNAVAILABLE) problem() else null)
+    val status: AudioStatus get() = AudioStatus(state(), detections, lastScore, if (state() == AudioState.WAKE_UNAVAILABLE) problem() else null, feedback)
 
     /** Applies the saved setting; call once the owning thread runs. */
     fun start() = update()
@@ -99,6 +106,7 @@ class AudioCoordinator(
         if (enabled == micEnabled) return
         setting.enabled = enabled
         micEnabled = enabled
+        if (!enabled) discardRequest()
         if (!enabled && gadgetCapture != null) {
             // The core keeps its recording state; it just gets no more audio.
             capture.close()
@@ -111,7 +119,13 @@ class AudioCoordinator(
     // -- the core's microphone ------------------------------------------------------------
 
     fun micStart(rate: Int): Boolean {
-        if (!micEnabled || handedOff) return false
+        if (closed || !micEnabled || handedOff) return false
+        if (startingWake && rate == WakeDetector.SAMPLE_RATE && wakeCapture != null) {
+            gadgetCapture = wakeCapture
+            wake?.takeCapture()
+            update()
+            return true
+        }
         stopWake()
         val token = Any()
         gadgetCapture = token
@@ -123,7 +137,7 @@ class AudioCoordinator(
 
     fun micStop() {
         if (gadgetCapture == null) return
-        capture.close()
+        if (gadgetCapture === wakeCapture) stopWake() else capture.close()
         gadgetCapture = null
         update()
     }
@@ -176,6 +190,7 @@ class AudioCoordinator(
     }
 
     fun close() {
+        closed = true
         stopWake()
         if (gadgetCapture != null) capture.close()
         gadgetCapture = null
@@ -196,11 +211,11 @@ class AudioCoordinator(
     private fun problem(): String =
         wake?.problem ?: captureProblem ?: if (wake == null) "wake listening is not available" else "starting"
 
-    private fun wakeWanted() = micEnabled && !handedOff && gadgetCapture == null && !playing && now >= wakeResumeAt &&
+    private fun wakeWanted() = !closed && micEnabled && !handedOff && gadgetCapture == null && !playing && now >= wakeResumeAt &&
         wake != null && wake.problem == null && now >= captureRetryAt
 
     private fun update() {
-        if (wakeWanted()) startWake() else stopWake()
+        if (wakeWanted()) startWake() else if (gadgetCapture == null || gadgetCapture !== wakeCapture) stopWake()
         val s = status
         if (s != published) {
             published = s
@@ -212,7 +227,10 @@ class AudioCoordinator(
         if (wakeCapture != null) return
         val engine = wake ?: return
         val token = Any()
-        val sink = engine.arm { score -> post { detected(token, score) } }
+        val sink = engine.arm(
+            onDetected = { score -> post { detected(token, score) } },
+            onChunk = { samples -> post { if (gadgetCapture === token) toCore(samples) } },
+        )
         if (capture.open(WakeDetector.SAMPLE_RATE, sink)) {
             wakeCapture = token
             captureProblem = null
@@ -232,8 +250,14 @@ class AudioCoordinator(
 
     private fun detected(token: Any, score: Float) {
         if (wakeCapture !== token) return // the session ended before the detection arrived
+        if (gadgetCapture != null) return
         detections++
         lastScore = score
+        feedback = if (voiceMode() == VoiceMode.LIVE) "Live voice is not available yet" else {
+            startingWake = true
+            try { startRequest().ifEmpty { "Listening for your request" } } finally { startingWake = false }
+        }
+        // A successful request now owns the running reader; a refusal keeps wake listening local.
         update()
     }
 

@@ -275,6 +275,8 @@ void hgsim_touch(hgsim* sim, int touching, int x, int y) {
   if (sim->touch) sim->touch->update(touching != 0, x, y, sim->hal.system->now_ms());
 }
 void hgsim_mic_samples(hgsim* sim, const int16_t* samples, size_t count) { sim->app->on_mic_samples(samples, count); }
+int hgsim_start_wake_request(hgsim* sim, char* out, size_t cap) { return copy_out(sim->app->start_wake_request(), out, cap); }
+void hgsim_discard_wake_request(hgsim* sim) { sim->app->discard_wake_request(); }
 void hgsim_submit_text(hgsim* sim, const char* text) { sim->app->submit_text(text ? text : ""); }
 void hgsim_set_sensor(hgsim* sim, const char* name, double value) {
   if (name) sim->app->set_sensor(name, value);

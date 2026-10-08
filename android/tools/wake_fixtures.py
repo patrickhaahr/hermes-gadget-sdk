@@ -46,6 +46,7 @@ VOICES = {
 
 # file -> list of (voice, speaker, text); each utterance is followed by silence.
 SPEECH = {
+    "wake_request.wav": [("en_US-ljspeech-high", None, "Hey Hermes. Please reply with the words voice connection test successful.")],
     "hey_hermes_ljspeech.wav": [("en_US-ljspeech-high", None, "Hey Hermes.")],
     "hey_hermes_libritts.wav": [("en_US-libritts_r-medium", 300, "Hey Hermes.")],
     "unrelated_speech.wav": [
