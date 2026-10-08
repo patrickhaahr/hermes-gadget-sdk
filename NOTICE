@@ -32,9 +32,22 @@ The optional Linux display uses pygame (LGPL 2.1) and SDL2 (zlib), also
 installed separately. No pygame or SDL source is copied into this repository.
 
 The Android client's APK includes OkHttp and Okio (Apache License 2.0, Square,
-Inc.) and the Kotlin standard library (Apache License 2.0, JetBrains s.r.o. and
-Kotlin contributors), fetched by Gradle at build time. The Apache 2.0 text is in
+Inc.), the Kotlin standard library (Apache License 2.0, JetBrains s.r.o. and
+Kotlin contributors) and LiteRT 1.4.2 (Apache License 2.0, Google AI Edge
+Authors), fetched by Gradle at build time. The Apache 2.0 text is in
 LICENSES/Apache-2.0.txt. No source of theirs is copied into this repository.
+
+The APK also includes three wake word models, downloaded at build time at
+pinned SHA-256 hashes and not stored in this repository:
+melspectrogram.tflite and embedding_model.tflite from openWakeWord v0.5.1
+(David Scripka; licensed CC BY-NC-SA 4.0,
+https://creativecommons.org/licenses/by-nc-sa/4.0/; the embedding model
+re-implements Google's speech_embedding model, Apache License 2.0), and
+hey_hermes.tflite from Hermes Agent (MIT, Copyright (c) 2025 Nous Research).
+An APK built with them may be used and shared for non-commercial purposes
+only. The Android wake tests' recorded speech was made with Piper voices
+trained on LJ Speech (public domain) and LibriTTS-R (CC BY 4.0, Koizumi et al.,
+https://www.openslr.org/141/).
 
 The optional MQTT example uses Eclipse Paho MQTT Python, dual licensed under
 Eclipse Public License 2.0 and Eclipse Distribution License 1.0. It is installed

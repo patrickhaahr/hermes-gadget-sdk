@@ -16,3 +16,9 @@ add_library(hgjni SHARED ../../main/cpp/hgjni.cpp)
 target_include_directories(hgjni PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${JNI_INCLUDE} ${JNI_INCLUDE}/linux ${JNI_INCLUDE}/darwin)
 target_link_libraries(hgjni PRIVATE hgsim)
 target_compile_options(hgjni PRIVATE -Wall -Wextra -fno-exceptions -fno-rtti)
+
+# The wake tests' bridge to the TensorFlow Lite C library (loaded at run time).
+add_library(hgtflite SHARED tflite_host.cpp)
+target_include_directories(hgtflite PRIVATE ${JNI_INCLUDE} ${JNI_INCLUDE}/linux ${JNI_INCLUDE}/darwin)
+target_link_libraries(hgtflite PRIVATE ${CMAKE_DL_LIBS})
+target_compile_options(hgtflite PRIVATE -Wall -Wextra)

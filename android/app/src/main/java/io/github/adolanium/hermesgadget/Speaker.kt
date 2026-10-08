@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * The server paces audio at most 0.5 s ahead of real time, so the queue stays short.
  */
-class Speaker {
+class Speaker : Playback {
     private sealed interface Item {
         val generation: Int
     }
@@ -36,7 +36,7 @@ class Speaker {
         start()
     }
 
-    fun begin(sampleRate: Int): Boolean {
+    override fun begin(sampleRate: Int): Boolean {
         abort()
         val t = trackFor(sampleRate) ?: return false
         if (t.playState != AudioTrack.PLAYSTATE_PLAYING) {
@@ -47,16 +47,16 @@ class Speaker {
         return true
     }
 
-    fun write(samples: ShortArray) {
+    override fun write(samples: ShortArray) {
         if (active.get()) queue.put(Pcm(generation, samples))
     }
 
-    fun end() {
+    override fun end() {
         if (active.get()) queue.put(End(generation))
     }
 
     /** Drop everything buffered and stop now (barge-in, cancel). */
-    fun abort() {
+    override fun abort() {
         generation++
         queue.clear()
         track?.let {
@@ -66,9 +66,9 @@ class Speaker {
         active.set(false)
     }
 
-    fun busy(): Boolean = active.get()
+    override fun busy(): Boolean = active.get()
 
-    fun setVolume(percent: Int) {
+    override fun setVolume(percent: Int) {
         volume = percent.coerceIn(0, 100) / 100f
         track?.setVolume(volume)
     }

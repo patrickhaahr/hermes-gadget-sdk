@@ -23,12 +23,34 @@ import java.io.IOException
 object GadgetRuntime {
     @Volatile var core: GadgetCore? = null
     @Volatile var frameListener: (() -> Unit)? = null
+    @Volatile var audioListener: ((AudioStatus) -> Unit)? = null
     @Volatile var stopReason: String? = null
     private var store: DeviceStore? = null
 
     @Synchronized
     fun store(context: Context): DeviceStore =
         store ?: DeviceStore(context.applicationContext.noBackupFilesDir).also { store = it }
+
+    /** Microphone off, saved before it takes effect so a restart can't undo it. */
+    fun microphone(context: Context): MicrophoneSetting = object : MicrophoneSetting {
+        private val prefs = context.applicationContext.getSharedPreferences("audio", Context.MODE_PRIVATE)
+        override var enabled: Boolean
+            get() = prefs.getBoolean(MICROPHONE_ENABLED, true)
+            set(value) {
+                prefs.edit().putBoolean(MICROPHONE_ENABLED, value).commit()
+            }
+    }
+
+    /** The microphone's state; without a running core, only the saved choice is known. */
+    fun audioStatus(context: Context): AudioStatus = core?.audioStatus
+        ?: AudioStatus(if (microphone(context).enabled) AudioState.WAKE_UNAVAILABLE else AudioState.MICROPHONE_OFF,
+            problem = "the gadget is not running")
+
+    /** Turns the microphone on or off, saving the choice first. */
+    fun setMicrophoneEnabled(context: Context, enabled: Boolean) {
+        microphone(context).enabled = enabled
+        core?.setMicrophoneEnabled(enabled)
+    }
 
     /** The logical screen: 360 px wide, as tall as the phone's aspect allows (the core's UI scales from it). */
     fun frameSize(context: Context): Pair<Int, Int> {
@@ -39,6 +61,7 @@ object GadgetRuntime {
     }
 
     private const val FRAME_WIDTH = 360
+    private const val MICROPHONE_ENABLED = "microphone_enabled"
 }
 
 /**
@@ -114,8 +137,10 @@ class GadgetService : Service() {
         val (width, height) = GadgetRuntime.frameSize(this)
         val firmware = packageManager.getPackageInfo(packageName, 0).versionName ?: "0.0.0"
         GadgetRuntime.stopReason = null
-        val core = GadgetCore(GadgetRuntime.store(this), firmware, Frame(width, height),
+        val wake = WakeListener(log = { Log.i(WAKE_TAG, it) }) { WakeDetector(LiteRtModel.fromAssets(assets)) }
+        val core = GadgetCore(GadgetRuntime.store(this), firmware, Frame(width, height), GadgetRuntime.microphone(this), wake,
             onFrame = { GadgetRuntime.frameListener?.invoke() },
+            onAudio = { status -> GadgetRuntime.audioListener?.invoke(status) },
             onStopped = { reason ->
                 GadgetRuntime.stopReason = reason
                 GadgetRuntime.frameListener?.invoke()
@@ -181,6 +206,7 @@ class GadgetService : Service() {
         private const val CHANNEL = "gadget"
         private const val NOTIFICATION_ID = 1
         private const val TAG = "HermesGadget"
+        private const val WAKE_TAG = "HermesWake"
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, GadgetService::class.java))
