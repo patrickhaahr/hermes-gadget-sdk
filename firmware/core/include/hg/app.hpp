@@ -87,6 +87,9 @@ class App {
   // --- device features ------------------------------------------------------
   // Sends typed text as a user message (keyboards, simulator, console).
   void submit_text(std::string_view text);
+  // Local wake activation: empty on success, otherwise a refusal reason. Never answers prompts.
+  std::string start_wake_request();
+  void discard_wake_request();
   // Records a sensor reading; reported to Hermes (rate limited).
   void set_sensor(std::string_view name, double value);
   // Reports a device event. With `notify_agent` the event is delivered to the
@@ -193,7 +196,9 @@ class App {
   void send(const json::Value& msg);
   void send_hello();
   bool can_talk() const;
-  void start_listening(bool hands_free);
+  void start_listening(bool hands_free, bool wake_request = false);
+  void send_audio_start();
+  void send_mic_samples(const int16_t* samples, size_t count);
   void finish_listening();
   void cancel_listening(std::string_view why);
   void stop_playback();
@@ -279,6 +284,8 @@ class App {
   Mode mode_ = Mode::Idle;
   uint32_t mode_since_ = 0;
   bool hands_free_ = false;
+  bool wake_request_ = false;
+  std::vector<int16_t> wake_audio_;
   uint8_t mic_stream_ = 0;
   uint16_t mic_seq_ = 0;
   std::string request_id_;

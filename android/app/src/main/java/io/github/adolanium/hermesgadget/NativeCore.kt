@@ -32,6 +32,8 @@ object NativeCore {
     external fun button(handle: Long, button: Int, pressed: Boolean)
     external fun touch(handle: Long, touching: Boolean, x: Int, y: Int)
     external fun micSamples(handle: Long, samples: ShortArray, count: Int)
+    external fun startWakeRequest(handle: Long): ByteArray
+    external fun discardWakeRequest(handle: Long)
     external fun submitText(handle: Long, text: ByteArray)
     external fun setSensor(handle: Long, name: ByteArray, value: Double)
     external fun console(handle: Long, line: ByteArray): ByteArray

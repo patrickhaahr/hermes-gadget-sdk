@@ -13,7 +13,10 @@ interface WakeEngine {
      * 16 kHz audio goes. [onDetected] gets the score of each detection, on the
      * engine's thread; after one the detector starts over.
      */
-    fun arm(onDetected: (Float) -> Unit): (ShortArray) -> Unit
+    fun arm(onDetected: (Float) -> Unit, onChunk: (ShortArray) -> Unit): (ShortArray) -> Unit
+
+    /** Stops inference while continuing ordered chunks to the core recording. */
+    fun takeCapture()
 
     /** Ends the session: audio still queued for it is dropped. */
     fun disarm()
@@ -28,7 +31,7 @@ interface WakeEngine {
  * Runs a [WakeDetector] on its own thread. The microphone's reader thread
  * hands it blocks, which it gathers into 80 ms chunks; when the detector falls
  * behind, the oldest chunks are dropped so it stays live. The audio goes
- * nowhere else.
+ * to the core only after a guarded wake handoff.
  *
  * For tuning on a phone, [log] gets each near miss (a score that rose without
  * a detection) and the input level once a minute: numbers only, never audio.
@@ -38,7 +41,8 @@ class WakeListener(
     private val log: (String) -> Unit = {},
     load: () -> WakeDetector,
 ) : WakeEngine {
-    private class Session(val onDetected: (Float) -> Unit) {
+    private class Session(val onDetected: (Float) -> Unit, val onChunk: (ShortArray) -> Unit) {
+        @Volatile var detecting = true
         val pending = ShortArray(WakeDetector.CHUNK_SAMPLES)
         var filled = 0
     }
@@ -72,11 +76,13 @@ class WakeListener(
 
     override val problem: String? get() = failure
 
-    override fun arm(onDetected: (Float) -> Unit): (ShortArray) -> Unit {
-        val s = Session(onDetected)
+    override fun arm(onDetected: (Float) -> Unit, onChunk: (ShortArray) -> Unit): (ShortArray) -> Unit {
+        val s = Session(onDetected, onChunk)
         session = s
         return { samples -> feed(s, samples) }
     }
+
+    override fun takeCapture() { session?.detecting = false }
 
     override fun disarm() {
         session = null
@@ -101,6 +107,10 @@ class WakeListener(
     // The detector thread.
     private fun detect(s: Session, chunk: ShortArray) {
         if (session !== s) return
+        if (!s.detecting) {
+            s.onChunk(chunk)
+            return
+        }
         val d = detector ?: return
         if (detectorSession !== s) {
             d.reset() // nothing heard before this session counts
@@ -113,6 +123,7 @@ class WakeListener(
             d.reset() // one utterance, one detection
             s.onDetected(score)
         }
+        s.onChunk(chunk)
     }
 
     private fun note(score: Float, chunkLevel: Float, fired: Boolean, d: WakeDetector) {

@@ -29,7 +29,7 @@ class Vad {
 
   void reset(const Config& cfg);
   Result feed(const int16_t* samples, size_t count);
-  bool heard_speech() const { return speech_ms_ > 0; }
+  bool heard_speech() const { return speech_ms_ >= 200; }
 
  private:
   Config cfg_;

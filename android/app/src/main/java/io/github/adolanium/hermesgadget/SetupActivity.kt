@@ -59,6 +59,12 @@ class SetupActivity : Activity() {
             finish()
             return
         }
+        intent.getStringExtra("voice_mode")?.let { value ->
+            val mode = VoiceMode.entries.find { it.value == value }
+            if (mode == null || !GadgetRuntime.setVoiceMode(this, mode)) Log.w(TAG, "voice_mode: use hermes; Live voice is not available yet")
+            finish()
+            return
+        }
         intent.getStringExtra(EXTRA_MICROPHONE)?.let { value ->
             when (value) {
                 "on", "off" -> GadgetRuntime.setMicrophoneEnabled(this, value == "on")
@@ -111,6 +117,27 @@ class SetupActivity : Activity() {
             showMicrophoneChoice()
         }
         showMicrophoneChoice()
+        label(R.string.voice_mode)
+        val choices = android.widget.RadioGroup(this)
+        val hermes = android.widget.RadioButton(this).apply {
+            id = View.generateViewId()
+            setText(R.string.voice_mode_hermes)
+        }
+        val live = android.widget.RadioButton(this).apply {
+            id = View.generateViewId()
+            setText(R.string.voice_mode_live_unavailable)
+            isEnabled = false
+        }
+        choices.addView(hermes)
+        choices.addView(live)
+        choices.check(if (GadgetRuntime.voiceMode(this) == VoiceMode.HERMES) hermes.id else live.id)
+        choices.setOnCheckedChangeListener { _, checked ->
+            if (checked == hermes.id && !GadgetRuntime.setVoiceMode(this, VoiceMode.HERMES)) {
+                message.setText(R.string.voice_mode_save_failed)
+                choices.check(live.id)
+            }
+        }
+        column.addView(choices)
         button(R.string.action_battery) {
             val pm = getSystemService(PowerManager::class.java)
             if (pm.isIgnoringBatteryOptimizations(packageName)) message.setText(R.string.battery_ok)
@@ -147,11 +174,11 @@ class SetupActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        status.post(poll)
+        if (::status.isInitialized) status.post(poll)
     }
 
     override fun onPause() {
-        status.removeCallbacks(poll)
+        if (::status.isInitialized) status.removeCallbacks(poll)
         super.onPause()
     }
 

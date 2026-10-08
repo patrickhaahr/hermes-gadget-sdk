@@ -268,6 +268,8 @@ void App::drop_session(std::string_view reason) {
   if (mode_ == Mode::Listening && hal_.mic) hal_.mic->stop();
   stop_playback();
   mode_ = Mode::Idle;
+  wake_request_ = false;
+  wake_audio_.clear();
   overlay_ = Overlay::None;
   image_stream_ = -1;
   clear_prompt();
@@ -429,6 +431,7 @@ void App::h_paired(const json::Value&) {
 }
 
 void App::h_unpaired(const json::Value&) {
+  discard_wake_request();
   paired_ = false;
   mode_ = Mode::Idle;
   stop_playback();
@@ -831,7 +834,26 @@ void App::on_button(Button button, bool pressed) {
   update_model();
 }
 
-void App::start_listening(bool hands_free) {
+std::string App::start_wake_request() {
+  if (!online()) return "Not connected to Hermes";
+  if (!paired_) return "Approve pairing first";
+  if (!prompt_id_.empty()) return "Answer the question on screen first";
+  if (mode_ != Mode::Idle || talk_held_) return "A turn is already running";
+  if (settings_open() || wifi_setup_open() || ota_busy() || !fatal_.empty()) return "Finish setup first";
+  start_listening(true, true);
+  if (mode_ != Mode::Listening) return "Microphone unavailable";
+  wake_display();
+  update_model();
+  return {};
+}
+
+void App::discard_wake_request() {
+  if (!wake_request_ || mode_ != Mode::Listening) return;
+  cancel_listening("microphone off");
+  update_model();
+}
+
+void App::start_listening(bool hands_free, bool wake_request) {
   stop_playback();
   dismiss_overlay();
   if (!hal_.mic || !hal_.mic->start(profile_.mic_rate)) {
@@ -839,20 +861,22 @@ void App::start_listening(bool hands_free) {
     return;
   }
   hands_free_ = hands_free;
+  wake_request_ = wake_request;
+  wake_audio_.clear();
   mic_stream_ = static_cast<uint8_t>(mic_stream_ % 250 + 1);
   mic_seq_ = 0;
   request_id_ = next_id('a');
   level_ = 0;
   Vad::Config vc;
   vc.sample_rate = profile_.mic_rate;
+  if (wake_request_) {
+    // The 8T capture is much quieter than the board microphones. Keep the board defaults.
+    vc.min_threshold = 50.0f;
+    vc.no_speech_ms = 5000;
+    vc.end_silence_ms = 1000;
+  }
   vad_.reset(vc);
-  json::Value start = proto::message("audio.start");
-  start.set("id", request_id_)
-      .set("stream", mic_stream_)
-      .set("rate", profile_.mic_rate)
-      .set("format", "pcm16")
-      .set("mode", hands_free ? "tap" : "hold");
-  send(start);
+  if (!wake_request_) send_audio_start();
   mode_ = Mode::Listening;
   mode_since_ = now();
   reply_.clear();
@@ -861,8 +885,29 @@ void App::start_listening(bool hands_free) {
   scroll_ = -1;
 }
 
+void App::send_audio_start() {
+  json::Value start = proto::message("audio.start");
+  start.set("id", request_id_)
+      .set("stream", mic_stream_)
+      .set("rate", profile_.mic_rate)
+      .set("format", "pcm16")
+      .set("mode", hands_free_ ? "tap" : "hold");
+  send(start);
+}
+
 void App::finish_listening() {
+  if (wake_request_ && !vad_.heard_speech()) {
+    cancel_listening("no speech");
+    set_hint_flash("Didn't hear anything");
+    return;
+  }
   if (hal_.mic) hal_.mic->stop();
+  if (wake_request_) {
+    send_audio_start();
+    send_mic_samples(wake_audio_.data(), wake_audio_.size());
+    wake_audio_.clear();
+    wake_request_ = false;
+  }
   json::Value end = proto::message("audio.end");
   end.set("id", request_id_).set("stream", mic_stream_).set("duration_ms", now() - mode_since_);
   send(end);
@@ -876,7 +921,9 @@ void App::cancel_listening(std::string_view why) {
   if (hal_.mic) hal_.mic->stop();
   json::Value c = proto::message("audio.cancel");
   c.set("id", request_id_).set("stream", mic_stream_).set("reason", why);
-  send(c);
+  if (!wake_request_) send(c);
+  wake_audio_.clear();
+  wake_request_ = false;
   mode_ = Mode::Idle;
   mode_since_ = now();
 }
@@ -917,14 +964,19 @@ void App::on_mic_samples(const int16_t* samples, size_t count) {
   }
   if (mode_ != Mode::Listening || count == 0) return;
   level_ = level_percent(rms(samples, count));
-  size_t off = 0;
-  while (off < count) {
-    size_t n = std::min(kMicChunkSamples, count - off);
-    frame_buf_.resize(proto::kBinaryHeader + n * 2);
-    proto::write_binary_header(frame_buf_.data(), proto::Channel::Audio, mic_stream_, mic_seq_++);
-    std::memcpy(frame_buf_.data() + proto::kBinaryHeader, samples + off, n * 2);
-    hal_.transport->send_binary(frame_buf_.data(), frame_buf_.size());
-    off += n;
+  if (wake_request_) {
+    const size_t cap = static_cast<size_t>(profile_.mic_rate) * kMaxUtteranceMs / 1000;
+    const size_t n = std::min(count, cap - wake_audio_.size());
+    wake_audio_.insert(wake_audio_.end(), samples, samples + n);
+    // Keep these samples for STT, but don't count the detection chunk/tail of the wake as a request.
+    if (wake_audio_.size() <= profile_.mic_rate * 240 / 1000) return;
+    if (wake_audio_.size() == cap) {
+      finish_listening();
+      update_model();
+      return;
+    }
+  } else {
+    send_mic_samples(samples, count);
   }
   if (hands_free_) {
     Vad::Result r = vad_.feed(samples, count);
@@ -936,6 +988,18 @@ void App::on_mic_samples(const int16_t* samples, size_t count) {
       set_hint_flash("Didn't hear anything");
       update_model();
     }
+  }
+}
+
+void App::send_mic_samples(const int16_t* samples, size_t count) {
+  size_t off = 0;
+  while (off < count) {
+    size_t n = std::min(kMicChunkSamples, count - off);
+    frame_buf_.resize(proto::kBinaryHeader + n * 2);
+    proto::write_binary_header(frame_buf_.data(), proto::Channel::Audio, mic_stream_, mic_seq_++);
+    std::memcpy(frame_buf_.data() + proto::kBinaryHeader, samples + off, n * 2);
+    hal_.transport->send_binary(frame_buf_.data(), frame_buf_.size());
+    off += n;
   }
 }
 

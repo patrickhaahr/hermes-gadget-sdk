@@ -8,6 +8,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.Base64
 import java.util.concurrent.ConcurrentLinkedQueue
 
@@ -71,11 +73,12 @@ class AudioCoordinatorTest {
     private inner class Host : NativeHost {
         val storage = mutableMapOf("server" to "ws://zaza:8765/gadget", "name" to "8T")
         val sentText = mutableListOf<String>()
-        var sentBinary = 0
+        val binary = mutableListOf<ByteArray>()
+        val sentBinary get() = binary.size
         override fun transportConnect(url: ByteArray, subprotocol: ByteArray) {}
         override fun transportSendText(data: ByteArray) = sentText.add(data.decodeToString())
         override fun transportSendBinary(data: ByteArray): Boolean {
-            sentBinary++
+            binary += data.copyOf()
             return true
         }
         override fun transportClose() {}
@@ -109,11 +112,15 @@ class AudioCoordinatorTest {
     private val statuses = mutableListOf<AudioStatus>()
     private var clock = 0L
     private var handle = 0L
+    private var mode = VoiceMode.HERMES
+    private var deliveredSamples = 0
     private lateinit var models: WakeModels
     private lateinit var audio: AudioCoordinator
 
     private fun coordinator(wake: WakeEngine?) = AudioCoordinator(capture, playback, wake, setting, queue::add,
-        toCore = { samples -> NativeCore.micSamples(handle, samples, samples.size) }, onStatus = { statuses += it })
+        toCore = { samples -> deliveredSamples += samples.size; NativeCore.micSamples(handle, samples, samples.size) }, onStatus = { statuses += it },
+        startRequest = { NativeCore.startWakeRequest(handle).decodeToString() },
+        discardRequest = { NativeCore.discardWakeRequest(handle) }, voiceMode = { mode })
 
     private fun wakeListener() = WakeListener(queueChunks = 1000) { WakeDetector(models) }
 
@@ -133,6 +140,7 @@ class AudioCoordinatorTest {
     fun destroy() {
         audio.close()
         NativeCore.destroy(handle)
+        assertNull("teardown did not reopen capture", capture.sink)
     }
 
     private fun pump() {
@@ -181,11 +189,10 @@ class AudioCoordinatorTest {
     private val wakePhrase get() = HostFixtures.pcm(WakeFixtures.POSITIVE_LJSPEECH)
 
     @Test
-    fun wakeListeningKeepsItsAudioOnThePhone() {
+    fun wakeStartsARequestWithoutUploadingBeforeSubmission() {
         assertEquals(AudioState.WAKE_LISTENING, audio.status.state)
         assertEquals(listOf(WakeDetector.SAMPLE_RATE), capture.opens)
         val textBefore = host.sentText.toList()
-        val screenBefore = NativeCore.screen(handle).decodeToString()
 
         assertTrue(capture.hear(HostFixtures.pcm(WakeFixtures.UNRELATED) + wakePhrase))
         awaitDetections(1)
@@ -193,13 +200,136 @@ class AudioCoordinatorTest {
 
         assertEquals("no audio frame went to Hermes", 0, host.sentBinary)
         assertEquals("nothing was sent for the detection", textBefore, host.sentText)
-        assertEquals("the detection didn't start a turn", screenBefore, NativeCore.screen(handle).decodeToString())
-        assertEquals(AudioState.WAKE_LISTENING, audio.status.state)
+        assertEquals("listening", NativeCore.screen(handle).decodeToString())
+        assertEquals(AudioState.GADGET_CAPTURE, audio.status.state)
         assertNotNull(audio.status.lastDetectionScore)
     }
 
+    private fun awaitOutcome(condition: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + 20_000
+        while (!condition() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(5)
+            pump()
+        }
+        assertTrue("the expected outcome did not arrive", condition())
+    }
+
+    private fun uploaded(): ShortArray = host.binary.flatMap { frame ->
+        val pcm = ShortArray((frame.size - 4) / 2)
+        ByteBuffer.wrap(frame, 4, frame.size - 4).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(pcm)
+        pcm.toList()
+    }.toShortArray()
+
     @Test
-    fun holdToTalkTakesTheMicrophoneFromWakeListening() {
+    fun wakeRequestUploadsExactlyFromDetectionAndPlaysOneReply() {
+        val lead = HostFixtures.pcm(WakeFixtures.UNRELATED)
+        val input = lead + HostFixtures.pcm(WakeFixtures.REQUEST)
+        val expected = WakeFixtures.expected(java.io.File(System.getProperty("hg.wake.fixtures"), "expected.txt").readText())
+        val detection = expected.getValue(WakeFixtures.REQUEST).detections.single()
+        capture.hear(input)
+        awaitOutcome { sent("audio.end") == 1 }
+        assertEquals(1, sent("audio.start"))
+        assertEquals("capture was handed over without reopening", listOf(16000, 16000), capture.opens)
+        val bytes = uploaded()
+        val from = lead.size + detection * WakeDetector.CHUNK_SAMPLES
+        org.junit.Assert.assertArrayEquals(input.copyOfRange(from, from + bytes.size), bytes)
+        assertTrue("the entire request, including its first word, arrived", bytes.size > 32000)
+
+        NativeCore.transportText(handle, """{"type":"reply","id":"a1","text":"Two cups of tea.","final":true}""".toByteArray())
+        NativeCore.transportText(handle, """{"type":"audio.start","stream":7,"rate":24000,"format":"pcm16"}""".toByteArray())
+        NativeCore.transportBinary(handle, byteArrayOf(1, 7, 0, 0, 1, 0, 2, 0))
+        NativeCore.transportText(handle, """{"type":"audio.end","stream":7}""".toByteArray())
+        NativeCore.transportText(handle, """{"type":"turn.end"}""".toByteArray())
+        assertEquals(listOf<Short>(1, 2), playback.played)
+        assertFalse(capture.hear(wakePhrase))
+        playback.playing = false
+        run(600)
+        assertEquals(AudioState.WAKE_LISTENING, audio.status.state)
+    }
+
+    @Test
+    fun wakeWithoutARequestDiscardsLocallyAndRearms() {
+        val before = host.sentText.toList()
+        capture.hear(wakePhrase + ShortArray(96000))
+        awaitDetections(1)
+        awaitOutcome { NativeCore.screen(handle).decodeToString() == "ready" }
+        assertEquals(before, host.sentText)
+        assertEquals(0, host.sentBinary)
+        assertEquals(AudioState.WAKE_LISTENING, audio.status.state)
+        capture.hear(wakePhrase)
+        awaitDetections(2)
+        assertEquals("listening", NativeCore.screen(handle).decodeToString())
+    }
+
+    @Test
+    fun microphoneOffAndSwipeDiscardTheBufferedWakeRequest() {
+        for (off in listOf(false, true)) {
+            capture.hear(wakePhrase)
+            awaitDetections(if (off) 2 else 1)
+            assertEquals("listening", NativeCore.screen(handle).decodeToString())
+            if (off) audio.setMicrophoneEnabled(false) else {
+                NativeCore.touch(handle, true, 180, 100)
+                NativeCore.touch(handle, true, 180, 250)
+                NativeCore.touch(handle, false, 180, 250)
+            }
+            run(100)
+            assertEquals("ready", NativeCore.screen(handle).decodeToString())
+            assertEquals(0, host.sentBinary)
+            assertEquals(0, sent("audio.start"))
+            assertEquals(0, sent("audio.end"))
+        }
+        assertEquals(AudioState.MICROPHONE_OFF, audio.status.state)
+        assertFalse(setting.enabled)
+    }
+
+    @Test
+    fun wakeRefusesDisconnectedUnpairedBusyAndLiveWithoutSending() {
+        val cases = listOf("disconnected", "unpaired", "busy", "live")
+        for ((index, case) in cases.withIndex()) {
+            NativeCore.transportClosed(handle, "test".toByteArray())
+            if (case != "disconnected") online()
+            when (case) {
+                "unpaired" -> NativeCore.transportText(handle, """{"type":"unpaired"}""".toByteArray())
+                "busy" -> NativeCore.submitText(handle, "test".toByteArray())
+                "live" -> mode = VoiceMode.LIVE
+            }
+            val before = host.sentText.toList()
+            capture.hear(wakePhrase)
+            awaitDetections(index + 1)
+            assertEquals(before, host.sentText)
+            assertEquals(0, host.sentBinary)
+            assertEquals(AudioState.WAKE_LISTENING, audio.status.state)
+            val reason = when (case) {
+                "disconnected" -> "Not connected to Hermes"
+                "unpaired" -> "Approve pairing first"
+                "busy" -> "A turn is already running"
+                else -> "Live voice is not available yet"
+            }
+            assertEquals(reason, audio.status.feedback)
+        }
+    }
+
+    @Test
+    fun maximumLengthSubmitsOnceAndACompletedOrFailedTurnRearms() {
+        capture.hear(wakePhrase)
+        awaitDetections(1)
+        capture.hear(HostFixtures.pcm(WakeFixtures.UNRELATED).copyOfRange(8000, 64000))
+        awaitOutcome { statuses.any { it.state == AudioState.GADGET_CAPTURE } }
+        // Wait for real detector/reader delivery before advancing the fake clock.
+        awaitOutcome { deliveredSamples >= 56000 }
+        run(30100)
+        assertEquals(NativeCore.status(handle).decodeToString(), 1, sent("audio.end"))
+        assertEquals(1, sent("audio.start"))
+        NativeCore.transportText(handle, """{"type":"turn.end"}""".toByteArray())
+        run(100)
+        capture.hear(wakePhrase)
+        awaitDetections(2)
+        assertEquals("listening", NativeCore.screen(handle).decodeToString())
+    }
+
+    @Test
+    fun holdToTalkTakesTheMicrophoneFromWakeListeningEvenInLiveMode() {
+        mode = VoiceMode.LIVE
         // Talk said while wake listening is never part of the recording.
         capture.hear(ShortArray(16000) { 1000 })
         talk(true)
@@ -292,6 +422,9 @@ class AudioCoordinatorTest {
         awaitDetections(1)
         run(500)
         assertEquals(0, sent("prompt.reply"))
+        assertEquals(0, sent("audio.start"))
+        assertEquals(0, host.sentBinary)
+        assertEquals("Answer the question on screen first", audio.status.feedback)
         assertEquals("the question is still on screen", screen, NativeCore.screen(handle).decodeToString())
     }
 
