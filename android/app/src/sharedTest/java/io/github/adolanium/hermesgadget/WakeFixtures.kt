@@ -12,7 +12,8 @@ object WakeFixtures {
     const val POSITIVE_LIBRITTS = "hey_hermes_libritts.wav"
     const val UNRELATED = "unrelated_speech.wav"
     const val NEAR_MISS = "near_miss.wav"
-    val ALL = listOf(POSITIVE_LJSPEECH, POSITIVE_LIBRITTS, UNRELATED, NEAR_MISS)
+    const val REQUEST = "wake_request.wav"
+    val ALL = listOf(REQUEST, POSITIVE_LJSPEECH, POSITIVE_LIBRITTS, UNRELATED, NEAR_MISS)
 
     class Expected(val detections: List<Int>, val scores: List<Float?>)
 

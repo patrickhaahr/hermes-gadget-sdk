@@ -4,7 +4,7 @@ The Android client turns a spare phone into a gadget. It runs the same device co
 
 This port is experimental. CI builds the app and runs the device core through the app's native bridge on the build machine. The [verification page](hardware-validation.md#oneplus-8t-wake-listening-report) records one physical phone report, for wake listening on a OnePlus 8T.
 
-You hold the screen to talk. The phone also listens locally for "Hey Hermes" and shows when it hears the phrase, but a detection does not start a conversation yet. See [Wake listening](#wake-listening).
+Say "Hey Hermes" and your request, or hold the screen to talk. Hermes uses its configured speech recognition and text-to-speech to answer in the phone's gadget conversation. See [Wake listening](#wake-listening).
 
 ## What you need
 
@@ -66,14 +66,20 @@ adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es server ws:
 
 ## Wake listening
 
-While the microphone is on and the gadget is idle, the phone listens for "Hey Hermes" on its own. The audio goes only to the detector on the phone. It is not recorded, stored, or sent to Hermes. When the phrase is heard, a blue **Heard "Hey Hermes"** banner shows for three seconds. Nothing else happens yet: a detection doesn't start a conversation, press a control, or answer a question on screen. Voice calls that start from it come later.
+Wake listening runs on the phone. While waiting for the phrase, microphone audio goes only to the local detector. In **Hermes voice** mode, say "Hey Hermes" and then your request, without waiting for a sound. You can speak in one breath or pause briefly after the wake. The banner says **Listening for your request** and the face shows Listening. There is no wake sound to contaminate the recording.
+
+The running microphone transfers to the recording without closing and reopening. Recording begins with the 80 ms chunk in which detection fires. Earlier chunks are discarded; there is no pre-roll. The request is buffered in memory on the phone until submission. Hermes may hear the tail of "Hermes". About one second of silence after speech sends one request through the same STT, gadget conversation and TTS path as hold-to-talk. No follow-up is recorded without another wake.
+
+If no request is heard within about five seconds, the phone discards it locally and shows **Didn't hear anything**. Swipe down or turn Microphone off to discard a wake request without sending any audio. A recording lasts at most 30 seconds. The initial energy detector requires 200 ms of speech, with an RMS floor of 50 PCM16 units and a threshold of three times its adaptive noise floor. Its first 240 ms are retained for STT but excluded from speech detection to avoid counting the wake's tail. These are initial settings; see the [device report](hardware-validation.md#oneplus-8t-hermes-voice-checks) for measured checks and limitations.
+
+A wake cannot answer an approval or question, replace a running turn, or record while disconnected, unpaired or holding the screen. The banner explains a refused wake. Wake listening pauses during Hermes's playback and resumes 500 ms after playback drains.
 
 The chip at the top of the screen shows who has the microphone:
 
 | Chip | Meaning |
 |---|---|
 | **Listening for "Hey Hermes"** | Wake listening is on. |
-| **Recording** | You are holding the screen to talk; the recording goes to Hermes as before. |
+| **Recording** | Hold-to-talk or a wake request owns the microphone. |
 | **Wake listening paused** | The gadget is speaking. Listening resumes half a second after it stops, so its own voice can't wake it. |
 | **Microphone off** | Nothing uses the microphone. |
 | **Wake listening unavailable** | The microphone is on, but listening can't run. The settings screen says why. Hold-to-talk still works. |
@@ -95,6 +101,21 @@ adb logcat -s HermesWake
 It records each detection with its score, changes of the microphone's owner, and, for tuning, near misses and the loudest input level once a minute. It logs only these numbers, never audio.
 
 **How it detects:** the app runs openWakeWord's melspectrogram and embedding models and Hermes Agent's `hey_hermes` classifier with [LiteRT](https://ai.google.dev/edge/litert). It uses the same streaming windows as [pyopen-wakeword](https://github.com/rhasspy/pyopen-wakeword), which Hermes Agent's desktop wake word uses. A detection needs a score of at least 0.8 in one 80 ms window. Hermes's desktop default, at least 0.6 in three consecutive windows, missed about half of real "Hey Hermes" attempts on the 8T: they scored as high, but for shorter runs. The detector then starts over, so one utterance gives one detection.
+
+## Voice mode
+
+The settings screen has **Voice mode**, next to the Microphone control:
+
+- **Hermes voice** is the default: a wake records one request for Hermes's configured STT/TTS.
+- **Live voice** is shown disabled until the subscription Live call integration is available. It cannot be selected, including over adb, and never silently falls back to Hermes voice.
+
+The setting is saved before taking effect and survives app restarts, reboots and updates. Hold-to-talk is available in both modes. On a dedicated phone:
+
+```bash
+adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es voice_mode hermes
+```
+
+Using `--es voice_mode live` reports that Live voice is unavailable and leaves the saved choice unchanged.
 
 ## Change the settings
 
@@ -129,7 +150,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 The build downloads the three wake models from their pinned releases and checks their SHA-256 hashes, so the first build needs network access. They aren't in the repository because openWakeWord's models are licensed for non-commercial use; see [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md#wake-word-models).
 
-The unit tests also build the app's native bridge for your computer, so they need CMake and a C++17 compiler. They drive the device core through the protocol handshake, replies, speaker audio, and microphone ownership. The wake tests run the real models through the TensorFlow Lite C library from the pinned pyopen-wakeword wheel, which they download. That library exists for Linux x86-64 only; on other machines those tests are skipped. The tests check the recorded speech in `app/src/wakeFixtures` against the reference engine's scores for it. `android/tools/wake_fixtures.py` regenerates both.
+The unit tests also build the app's native bridge for your computer, so they need CMake and a C++17 compiler. They drive the device core through the protocol handshake, replies, speaker audio, and microphone ownership. The wake tests run the real models through the TensorFlow Lite C library from the pinned pyopen-wakeword wheel, which they download. That library exists for Linux x86-64 only; on other machines those tests are skipped. The coordinator tests also check exact uploaded PCM, local discards, refusals, ownership and re-arming through the real core. The tests check the recorded speech in `app/src/wakeFixtures` against the reference engine's scores for it. `android/tools/wake_fixtures.py` regenerates both.
 
 To run the same fixtures through LiteRT on a phone:
 
@@ -145,8 +166,17 @@ Don't use `./gradlew connectedAndroidTest` on a configured gadget. It uninstalls
 
 ## Limits
 
-- A wake detection only shows the banner; starting a voice call from it comes later. Camera support is not included yet.
+- Subscription Live voice calls and camera support are not included yet.
 - Wake listening knows only "Hey Hermes", with English pronunciation. Its accuracy is measured on one phone, one speaker, and one room. The APK includes the wake models, which are licensed for non-commercial use only.
 - The display is the core's renderer at 360 pixels wide, scaled up with square pixels. The app runs in portrait.
 - Android delivers no updates over the gadget connection. Install new versions with `adb install -r`.
 - See the [verification table](hardware-validation.md) for what has been tested on a phone.
+For an opt-in acoustic check against your paired, configured Hermes host (this plays synthetic speech aloud and submits a real test request):
+
+```bash
+adb shell am instrument -w -e voiceAcoustic true -e screenOff true \
+  -e class io.github.adolanium.hermesgadget.WakeRequestDeviceTest \
+  io.github.adolanium.hermesgadget.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+This uses the real phone microphone and loudspeaker. It is separate from human speech at 1–3 metres; see the [Hermes voice checks](hardware-validation.md#oneplus-8t-hermes-voice-checks).

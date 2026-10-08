@@ -7,9 +7,9 @@ tests use software drivers or test doubles. No physical Pi report is recorded.
 The Android client is experimental. CI builds the app and runs the device core
 through its JNI bridge on the build machine, with test doubles for the drivers;
 its wake tests run the real wake models with the TensorFlow Lite C library.
-One physical phone report is recorded, for [wake listening on a OnePlus
-8T](#oneplus-8t-wake-listening-report). It doesn't cover the rest of the
-physical checklist.
+Physical reports record [wake listening](#oneplus-8t-wake-listening-report)
+and [Hermes voice requests](#oneplus-8t-hermes-voice-checks) on a OnePlus 8T.
+They do not cover the rest of the physical checklist.
 
 Firmware builds and simulator tests check software behavior. A physical verification report records what worked on a particular board revision, wiring, and firmware commit. A passing build alone does not establish that a microphone, power circuit, or display works on a device.
 
@@ -46,6 +46,43 @@ CI builds and packages these profiles. The browser installer lists profiles incl
 - **Microphone ownership, from Android's recording log:** wake capture stopped when Microphone off was chosen. After reinstalling the app, a new process started with the microphone off and opened no capture. A hold-to-talk press with the microphone off opened none either. With the microphone on, a hold-to-talk press stopped the wake capture before its own capture started, and wake capture resumed after release. With the screen off, the wake capture was still recording and not silenced.
 - **Playback:** a hold-to-talk question and Hermes's spoken reply (first run) paused wake listening during the reply and caused no detection.
 - **Not covered:** other speakers, accents, noisy rooms, music or TV, the phone's own speaker at volume during listening, long-term false wakes, battery use, and anything after a detection (voice calls).
+
+## OnePlus 8T Hermes voice checks
+
+Tested on 2026-10-09 with the same OnePlus 8T KB2005, /e/OS 3.1.1 / Android 14, paired LAN connection and device-owner kiosk setup described above. The app contains the issue #10 changes based on `5b5f0fd`; the original debug signing key was used for an in-place update. The installed APK SHA-256 is `68aa02e02e85c69702292a61b7b1d4839c85f186cf43e8207dd7f66fccd2f88c`. Device storage and kiosk preference hashes were identical before and after the first update and instrumentation run. No host STT/TTS settings changed.
+
+Settings on the tested phone, before and after the update:
+
+| Before | After |
+|---|---|
+| ![Microphone control before voice mode](images/android-voice-settings-before.png) | ![Hermes voice selected; Live voice unavailable](images/android-voice-settings-after.png) |
+
+Automated checks and acoustic checks are separate evidence:
+
+- **Host:** 30 Android unit tests passed through the production JNI/core/coordinator and real wake models, with stand-ins for capture/playback. The transport tests assert one submission, exact contiguous PCM beginning at the detection chunk, no upload for silence or cancellation, refusals for prompts/disconnection/unpaired/busy/Live, Microphone off, the maximum length, reply playback and re-arming. The C++ core tests also passed.
+- **On-phone models:** both wake-model instrumentation tests passed with LiteRT 1.4.2. All five fixtures, including a wake immediately followed by a request, matched the independent reference detections; score drift was below 0.00001.
+- **Acoustic round trip:** opt-in `WakeRequestDeviceTest` played the synthetic LJ Speech request through the phone's own loudspeaker at the existing music volume (30/30), while the production app used its real microphone, paired connection and the host's configured STT/TTS. One attempt succeeded with one detection. The persisted gadget transcript started with “please reply with the words Voice Connection Test Successful.”; the assistant answered “Voice Connection Test Successful.” The first request word was retained, and the wake tail did not appear in this transcript.
+- **Timing for that attempt:** detection/capture at 1,538 ms after input playback began; reply playback at 11,277 ms. Recording ended at 01:19:45.041 and reply playback began at 01:19:50.377, a 5.336 s host turnaround after local submission. The fixture's last active sample is at 4.887 s, giving approximately 6.39 s from source speech ending to reply beginning, before accounting for loudspeaker/capture latency. This is a synthetic-source timing, not a measured human speech timing.
+- **Handoff:** Android's recording activity log kept session 265 active from 01:19:34.922 through wake detection at 01:19:40.641, until the request ended at 01:19:45.015. There was no stop/reopen at wake. Exact PCM continuity is additionally asserted in the host transport test; acoustic sample-level continuity was not measured.
+- **Playback:** one spoken reply, no second wake, and return to wake listening. Recording stopped before reply playback; listening resumed after it drained and the 500 ms tail elapsed.
+- **Settings/lifecycle:** Hermes voice was saved through adb. An adb attempt to select unavailable Live left the preference file unchanged. Microphone off stopped capture and survived reinstall/process recreation; enabling it restored wake listening. Device owner, gadget identity, authorization and kiosk settings remained intact.
+- **Screen off and silent wake:** a second acoustic round trip passed with Android put to sleep before playback: one detection, one spoken reply, and re-arming. Its capture began 1,563 ms and reply playback 12,395 ms after input playback began. A wake-only fixture then discarded without playback and rearmed 6,681 ms after source playback started (about 5.26 s after detection). Across the two synthetic requests, 2/2 succeeded, 0/2 lost the first request word, 0/2 included the wake tail in the stored transcript, and neither reply caused a wake.
+- **Initial endpointer:** 1,000 ms silence, 5,000 ms without sustained speech, 30 s maximum, 200 ms speech minimum, RMS floor 50 PCM16 units, adaptive noise ratio 3. The first 240 ms after detection are buffered but excluded from speech detection. These choices passed the synthetic acoustic check; they are not tuned or validated for human requests at 1–3 m.
+
+Commands and outcomes for this change (from the repository root, with a JDK, Android SDK and native compiler available):
+
+| Check | Command | Outcome |
+|---|---|---|
+| Android host and APKs | `./android/gradlew -p android --no-daemon assembleDebug testDebugUnitTest assembleDebugAndroidTest` | Passed; 30 host tests, no failures or skips; both APKs built. |
+| Core | `cmake --build build/host --parallel 4` and `ctest --test-dir build/host --output-on-failure` | Passed, one core suite. |
+| Transport and simulator | `python -m pytest tests/test_sim_hub.py tests/test_protocol.py tests/test_hub_pacing.py -q` | 29 passed. |
+| Site | `npm --prefix site test` and `npm --prefix site run build` | 29 tests passed; 20 documentation pages built. |
+| On-phone wake models | `adb shell am instrument -w -e class io.github.adolanium.hermesgadget.WakeDetectorDeviceTest io.github.adolanium.hermesgadget.test/androidx.test.runner.AndroidJUnitRunner` | Two passed. |
+| On-phone acoustic | `adb shell am instrument -w -e voiceAcoustic true -e screenOff true -e class io.github.adolanium.hermesgadget.WakeRequestDeviceTest io.github.adolanium.hermesgadget.test/androidx.test.runner.AndroidJUnitRunner` | Two passed: screen-off request/reply and silent discard. A preceding screen-on request also passed. |
+
+The first PR Android CI run failed before tests: Gradle removed the host JNI output directory immediately after CMake configured it. `buildHostJni --info` reproduced this on a fresh checkout with no Gradle task history. Removing that task's output-directory declaration lets CMake own its incremental build state. The fresh-checkout Android command above then passed. A local model download returned HTTP 429; that retry reused the existing SHA-256-verified pinned artifacts. The owner subsequently confirmed that the installed wake-to-reply interaction works; no distance or accuracy counts were supplied.
+
+Human wake-plus-request trials at 1–3 m, room-noise accuracy, other speakers and accents, long-term false wakes, and speech latency distributions are not measured in this change. The acoustic source was the phone's own loudspeaker, not a person across the room. The phone stays experimental.
 
 ## Waveshare 1.85C V2 partial physical report
 

@@ -230,3 +230,7 @@ mac = HMAC-SHA256(key, "hermes-gadget/v1|ota|" + device_id + "|" + nonce + "|" +
 - `proto` is a single integer, and a server rejects versions it does not speak.
 - Adding optional fields or new message types does not change the version. Receivers ignore unknown types and fields.
 - Changing the meaning of an existing field does.
+
+### Android wake requests
+
+Android Hermes voice uses the existing `audio.start` (`mode: "tap"`), PCM16 frames and `audio.end` messages. It buffers a wake request locally, then sends these in order after end-of-speech; servers need no new mode or handler. Requests discarded before submission send no audio messages. Hold-to-talk still streams while recording. Audio before the detection chunk is never included.

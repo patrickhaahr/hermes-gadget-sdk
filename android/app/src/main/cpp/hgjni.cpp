@@ -406,6 +406,14 @@ HG_JNI(jbyteArray, console)(JNIEnv* env, jobject, jlong handle, jbyteArray line)
   return reply(env, out, hgsim_console(sim(env, handle), l.c_str(), out.data(), out.size()));
 }
 
+HG_JNI(jbyteArray, startWakeRequest)(JNIEnv* env, jobject, jlong handle) {
+  std::vector<char> out(256);
+  return reply(env, out, hgsim_start_wake_request(sim(env, handle), out.data(), out.size()));
+}
+HG_JNI(void, discardWakeRequest)(JNIEnv* env, jobject, jlong handle) {
+  hgsim_discard_wake_request(sim(env, handle));
+}
+
 HG_JNI(jbyteArray, status)(JNIEnv* env, jobject, jlong handle) {
   std::vector<char> out(kReplyCap);
   return reply(env, out, hgsim_status(sim(env, handle), out.data(), out.size()));

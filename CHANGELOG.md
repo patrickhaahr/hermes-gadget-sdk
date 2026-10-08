@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Android: "Hey Hermes" now records one request through the existing Hermes STT/TTS path, without reopening the microphone. Silence, swipe cancellation and Microphone off discard it locally. Voice mode defaults to Hermes voice; Live voice is shown unavailable until its call integration lands.
+
 ### Hardware and setup
 
 - Show a QR code on the Wi-Fi setup screen so a phone camera can join the gadget's temporary network without typing. The code encodes the network name and password with the standard `WIFI:` scheme. The instructions stay printed beside it, since the phone still opens the setup address and some phones cannot scan. Screens without room for a scannable code beside the instructions keep the text-only screen.
@@ -17,7 +19,7 @@
 
 ### Android
 
-- The Android client listens on the phone for "Hey Hermes" and shows a banner when it hears it. The audio stays on the phone, and a detection doesn't yet start a conversation, press a control, or answer a question. A chip at the top of the screen shows who has the microphone: wake listening, hold-to-talk, or the gadget's own speech. Tapping it turns the microphone off. That choice outlasts restarts and updates. Wake listening runs openWakeWord's feature models and Hermes Agent's `hey_hermes` classifier with LiteRT. The build downloads the models at pinned hashes because they aren't MIT-licensed. On a OnePlus 8T it heard 18 of 18 attempts at 1–3 m, including with the screen off, after Hermes's desktop detection rule missed about half. See [docs/android.md](docs/android.md#wake-listening).
+- The Android client listens on the phone for "Hey Hermes" and shows a banner when it hears it. Audio stays on the phone while waiting for the phrase; a detection never presses a control or answers an approval. A chip at the top of the screen shows who has the microphone: wake listening, hold-to-talk, or the gadget's own speech. Tapping it turns the microphone off. That choice outlasts restarts and updates. Wake listening runs openWakeWord's feature models and Hermes Agent's `hey_hermes` classifier with LiteRT. The build downloads the models at pinned hashes because they aren't MIT-licensed. On a OnePlus 8T it heard 18 of 18 attempts at 1–3 m, including with the screen off, after Hermes's desktop detection rule missed about half. See [docs/android.md](docs/android.md#wake-listening).
 - Console commands now run once through the Android JNI bridge, so `say` sends one message instead of two. Console and status replies are capped at 16 KiB including the terminating null byte.
 - An experimental Android client in `android/` runs the device core on a phone through the NDK. It covers pairing, hold-to-talk on the touch screen, spoken replies and the face, with the screen on or off. It can also run as a dedicated device: as device owner it is the home screen, stays pinned and starts after a reboot. It is configured over adb or from its settings screen, which can also open Android's developer options while the kiosk is locked and warns when a screen lock would stop the gadget from starting after a reboot. CI builds the APK and drives the core through the app's JNI bridge. See [docs/android.md](docs/android.md).
 

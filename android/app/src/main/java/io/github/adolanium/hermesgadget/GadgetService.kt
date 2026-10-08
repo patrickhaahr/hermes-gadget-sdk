@@ -41,6 +41,18 @@ object GadgetRuntime {
             }
     }
 
+    fun voiceMode(context: Context): VoiceMode {
+        val saved = context.applicationContext.getSharedPreferences("audio", Context.MODE_PRIVATE).getString("voice_mode", "hermes")
+        return if (saved == "live") VoiceMode.LIVE else VoiceMode.HERMES
+    }
+
+    /** Unsupported Live is refused, with no fallback or change to the saved choice. */
+    fun setVoiceMode(context: Context, mode: VoiceMode): Boolean {
+        if (mode == VoiceMode.LIVE) return false
+        return context.applicationContext.getSharedPreferences("audio", Context.MODE_PRIVATE)
+            .edit().putString("voice_mode", mode.value).commit()
+    }
+
     /** The microphone's state; without a running core, only the saved choice is known. */
     fun audioStatus(context: Context): AudioStatus = core?.audioStatus
         ?: AudioStatus(if (microphone(context).enabled) AudioState.WAKE_UNAVAILABLE else AudioState.MICROPHONE_OFF,
@@ -141,6 +153,7 @@ class GadgetService : Service() {
         val core = GadgetCore(GadgetRuntime.store(this), firmware, Frame(width, height), GadgetRuntime.microphone(this), wake,
             onFrame = { GadgetRuntime.frameListener?.invoke() },
             onAudio = { status -> GadgetRuntime.audioListener?.invoke(status) },
+            voiceMode = { GadgetRuntime.voiceMode(this) },
             onStopped = { reason ->
                 GadgetRuntime.stopReason = reason
                 GadgetRuntime.frameListener?.invoke()

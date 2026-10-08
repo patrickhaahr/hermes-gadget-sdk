@@ -111,6 +111,9 @@ HGSIM_API void hgsim_button(hgsim* sim, int button, int pressed);
 /* Touchscreen sample in screen pixels; touching = 0 when the finger lifts. */
 HGSIM_API void hgsim_touch(hgsim* sim, int touching, int x, int y);
 HGSIM_API void hgsim_mic_samples(hgsim* sim, const int16_t* samples, size_t count);
+/* Guarded local wake request; writes an empty string on success or the refusal reason. */
+HGSIM_API int hgsim_start_wake_request(hgsim* sim, char* out, size_t cap);
+HGSIM_API void hgsim_discard_wake_request(hgsim* sim);
 HGSIM_API void hgsim_submit_text(hgsim* sim, const char* text);
 HGSIM_API void hgsim_set_sensor(hgsim* sim, const char* name, double value);
 HGSIM_API void hgsim_emit_event(hgsim* sim, const char* name, const char* data_json, int notify_agent);

@@ -29,4 +29,8 @@
     <string name="wake_heard">Heard “Hey Hermes”</string>
     <string name="action_microphone_off">Turn the microphone off</string>
     <string name="action_microphone_on">Turn the microphone on</string>
+    <string name="voice_mode">Voice mode</string>
+    <string name="voice_mode_hermes">Hermes voice</string>
+    <string name="voice_mode_live_unavailable">Live voice — available after the Live call integration</string>
+    <string name="voice_mode_save_failed">Voice mode could not be saved. Try again.</string>
 </resources>

@@ -61,6 +61,7 @@ class ListeningChip(context: Context, private val onToggle: (enable: Boolean) ->
         chip.background = pill(color)
         chip.contentDescription = chip.context.getString(text) + ". " +
             chip.context.getString(if (microphoneOff) R.string.wake_toggle_on else R.string.wake_toggle_off)
+        banner.text = status.feedback ?: chip.context.getString(R.string.wake_heard)
         if (announce && shownDetections >= 0 && status.detections > shownDetections) {
             banner.visibility = View.VISIBLE
             banner.removeCallbacks(hideBanner)
