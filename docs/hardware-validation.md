@@ -7,9 +7,9 @@ tests use software drivers or test doubles. No physical Pi report is recorded.
 The Android client is experimental. CI builds the app and runs the device core
 through its JNI bridge on the build machine, with test doubles for the drivers;
 its wake tests run the real wake models with the TensorFlow Lite C library.
-One physical phone report is recorded, for [wake listening on a OnePlus
-8T](#oneplus-8t-wake-listening-report). It doesn't cover the rest of the
-physical checklist.
+Physical reports record [wake listening](#oneplus-8t-wake-listening-report)
+and [Hermes voice requests](#oneplus-8t-hermes-voice-checks) on a OnePlus 8T.
+They do not cover the rest of the physical checklist.
 
 Firmware builds and simulator tests check software behavior. A physical verification report records what worked on a particular board revision, wiring, and firmware commit. A passing build alone does not establish that a microphone, power circuit, or display works on a device.
 
@@ -68,6 +68,19 @@ Automated checks and acoustic checks are separate evidence:
 - **Settings/lifecycle:** Hermes voice was saved through adb. An adb attempt to select unavailable Live left the preference file unchanged. Microphone off stopped capture and survived reinstall/process recreation; enabling it restored wake listening. Device owner, gadget identity, authorization and kiosk settings remained intact.
 - **Screen off and silent wake:** a second acoustic round trip passed with Android put to sleep before playback: one detection, one spoken reply, and re-arming. Its capture began 1,563 ms and reply playback 12,395 ms after input playback began. A wake-only fixture then discarded without playback and rearmed 6,681 ms after source playback started (about 5.26 s after detection). Across the two synthetic requests, 2/2 succeeded, 0/2 lost the first request word, 0/2 included the wake tail in the stored transcript, and neither reply caused a wake.
 - **Initial endpointer:** 1,000 ms silence, 5,000 ms without sustained speech, 30 s maximum, 200 ms speech minimum, RMS floor 50 PCM16 units, adaptive noise ratio 3. The first 240 ms after detection are buffered but excluded from speech detection. These choices passed the synthetic acoustic check; they are not tuned or validated for human requests at 1–3 m.
+
+Commands and outcomes for this change (from the repository root, with a JDK, Android SDK and native compiler available):
+
+| Check | Command | Outcome |
+|---|---|---|
+| Android host and APKs | `./android/gradlew -p android --no-daemon assembleDebug testDebugUnitTest assembleDebugAndroidTest` | Passed; 30 host tests, no failures or skips; both APKs built. |
+| Core | `cmake --build build/host --parallel 4` and `ctest --test-dir build/host --output-on-failure` | Passed, one core suite. |
+| Transport and simulator | `python -m pytest tests/test_sim_hub.py tests/test_protocol.py tests/test_hub_pacing.py -q` | 29 passed. |
+| Site | `npm --prefix site test` and `npm --prefix site run build` | 29 tests passed; 20 documentation pages built. |
+| On-phone wake models | `adb shell am instrument -w -e class io.github.adolanium.hermesgadget.WakeDetectorDeviceTest io.github.adolanium.hermesgadget.test/androidx.test.runner.AndroidJUnitRunner` | Two passed. |
+| On-phone acoustic | `adb shell am instrument -w -e voiceAcoustic true -e screenOff true -e class io.github.adolanium.hermesgadget.WakeRequestDeviceTest io.github.adolanium.hermesgadget.test/androidx.test.runner.AndroidJUnitRunner` | Two passed: screen-off request/reply and silent discard. A preceding screen-on request also passed. |
+
+The first PR Android CI run failed before tests: Gradle removed the host JNI output directory immediately after CMake configured it. `buildHostJni --info` reproduced this on a fresh checkout with no Gradle task history. Removing that task's output-directory declaration lets CMake own its incremental build state. The fresh-checkout Android command above then passed. A local model download returned HTTP 429; that retry reused the existing SHA-256-verified pinned artifacts. The owner subsequently confirmed that the installed wake-to-reply interaction works; no distance or accuracy counts were supplied.
 
 Human wake-plus-request trials at 1–3 m, room-noise accuracy, other speakers and accents, long-term false wakes, and speech latency distributions are not measured in this change. The acoustic source was the phone's own loudspeaker, not a person across the room. The phone stays experimental.
 

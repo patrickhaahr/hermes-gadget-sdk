@@ -149,7 +149,8 @@ val configureHostJni by tasks.registering(Exec::class) {
 val buildHostJni by tasks.registering(Exec::class) {
     dependsOn(configureHostJni)
     inputs.files(fileTree("src/main/cpp"), fileTree("src/test/cpp"), fileTree("../../firmware/core"), fileTree("../../firmware/sim"))
-    outputs.dir(hostJni)
+    // CMake maintains this directory across configure/build. Declaring it as this
+    // task's output lets Gradle delete the just-configured cache on a fresh checkout.
     commandLine("cmake", "--build", hostJni.get().asFile.path, "--parallel", "--target", "hgjni", "hgtflite")
 }
 tasks.withType<Test>().configureEach {
