@@ -5,8 +5,11 @@ core, service, package installation and updates. USB audio, GPIO, and display
 tests use software drivers or test doubles. No physical Pi report is recorded.
 
 The Android client is experimental. CI builds the app and runs the device core
-through its JNI bridge on the build machine, with test doubles for the drivers.
-No physical phone report is recorded.
+through its JNI bridge on the build machine, with test doubles for the drivers;
+its wake tests run the real wake models with the TensorFlow Lite C library.
+One physical phone report is recorded, for [wake listening on a OnePlus
+8T](#oneplus-8t-wake-listening-report). It doesn't cover the rest of the
+physical checklist.
 
 Firmware builds and simulator tests check software behavior. A physical verification report records what worked on a particular board revision, wiring, and firmware commit. A passing build alone does not establish that a microphone, power circuit, or display works on a device.
 
@@ -29,6 +32,20 @@ Firmware builds and simulator tests check software behavior. A physical verifica
 The LCD-1.54 `-EN` SKU uses the same hardware. The separate Touch-LCD-1.54 model adds a CST816 touchscreen that this port does not drive. AMOLED-1.75C has its own firmware profile; its reset and audio clock pins differ from the 1.75 model. See [hardware and wiring](hardware.md) for connections and exact model names.
 
 CI builds and packages these profiles. The browser installer lists profiles included in the latest published release, so newly merged profiles may require a source build until the next release. Other chips, wiring, and unlisted hardware revisions are porting targets, not verified configurations.
+
+## OnePlus 8T wake listening report
+
+- **Phone:** OnePlus 8T KB2005 running /e/OS 3.1.1 (Android 14, API 34, build `AP2A.240905.003`). The app is device owner in kiosk mode, paired to Hermes over the LAN.
+- **App:** the `android/wake-listening` branch based on `f61113d`, debug build, tested on 2026-10-08. Wake models as pinned in `android/app/build.gradle.kts`, run by LiteRT 1.4.2.
+- **On-phone pipeline tests:** `WakeDetectorDeviceTest` passed on the phone. For the four recorded fixtures, detections matched the reference engine. LiteRT's scores differed from the reference by less than 0.00001. It processed 8 s of audio in about 0.5 s. Most of that time went to starting a fresh session (about 0.4 s, judging by the shorter fixtures).
+- **Spoken "Hey Hermes", one adult speaker, normal room, usual volume, the phone's built-in microphone:**
+  - With Hermes's desktop rule (at least 0.6 in 3 consecutive windows), 7 of about 15 attempts over 1–3 m were detected, with misses at every distance. An earlier run of 18 attempts gave 4 detections. The logged near misses scored 0.94–0.96 but stayed over 0.6 for only one or two windows. About 30 s of other talk gave no detection.
+  - With the app's rule (at least 0.8 in one window): 5 of 5 at 1 m, 5 of 5 at 2 m, 5 of 5 at 3 m, and 3 of 3 at 2 m with the screen off. About 60 s of other talk gave no detection and no near miss.
+
+  Detection scores were 0.81–0.97. The microphone's loudest input was −43 to −45 dBFS per minute during the attempts. Android's event log confirmed the screen was off for the screen-off attempts.
+- **Microphone ownership, from Android's recording log:** wake capture stopped when Microphone off was chosen. After reinstalling the app, a new process started with the microphone off and opened no capture. A hold-to-talk press with the microphone off opened none either. With the microphone on, a hold-to-talk press stopped the wake capture before its own capture started, and wake capture resumed after release. With the screen off, the wake capture was still recording and not silenced.
+- **Playback:** a hold-to-talk question and Hermes's spoken reply (first run) paused wake listening during the reply and caused no detection.
+- **Not covered:** other speakers, accents, noisy rooms, music or TV, the phone's own speaker at volume during listening, long-term false wakes, battery use, and anything after a detection (voice calls).
 
 ## Waveshare 1.85C V2 partial physical report
 

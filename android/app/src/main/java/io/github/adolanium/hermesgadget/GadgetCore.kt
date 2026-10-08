@@ -16,14 +16,17 @@ class Frame(val width: Int, val height: Int) {
 
 /**
  * Hosts the production device core on one thread, as the architecture requires:
- * ticks, transport events, microphone blocks, touches and every native callback
- * run on [thread]. Everything else talks to it through [post].
+ * ticks, transport events, microphone blocks, touches, every native callback and
+ * the [AudioCoordinator] run on [thread]. Everything else talks to it through [post].
  */
 class GadgetCore(
     private val store: DeviceStore,
     private val firmware: String,
     val frame: Frame,
+    microphone: MicrophoneSetting,
+    wake: WakeEngine?,
     private val onFrame: () -> Unit,
+    private val onAudio: (AudioStatus) -> Unit,
     private val onStopped: (String) -> Unit,
 ) : NativeHost, TransportEvents {
     private val thread = HandlerThread("gadget-core").apply { start() }
@@ -31,15 +34,22 @@ class GadgetCore(
     private val random = SecureRandom()
     private val started = SystemClock.elapsedRealtime()
     private val transport = WsTransport(::post, this)
-    private val mic = Microphone { samples -> post { if (micOn) NativeCore.micSamples(handle, samples, samples.size) } }
     private val speaker = Speaker()
     private var handle = 0L
-    private var micOn = false // core thread only
+    private var detections = 0 // core thread only
+    private val audio = AudioCoordinator(Microphone(), speaker, wake, microphone, ::post,
+        toCore = { samples -> if (handle != 0L) NativeCore.micSamples(handle, samples, samples.size) },
+        onStatus = ::audioChanged)
+
+    /** The microphone's owner, as last reported on the core thread. */
+    @Volatile var audioStatus = audio.status
+        private set
 
     private val tick = object : Runnable {
         override fun run() {
             if (handle == 0L) return
             NativeCore.tick(handle)
+            audio.tick(nowMs())
             handler.postDelayed(this, TICK_MS)
         }
     }
@@ -53,6 +63,7 @@ class GadgetCore(
         )
         check(handle != 0L) { "the device core did not start" }
         NativeCore.begin(handle)
+        audio.start()
         handler.post(tick)
     }
 
@@ -60,7 +71,7 @@ class GadgetCore(
     fun stop() {
         post {
             handler.removeCallbacks(tick)
-            mic.stop()
+            audio.close()
             speaker.release()
             transport.shutdown()
             if (handle != 0L) NativeCore.destroy(handle)
@@ -81,6 +92,9 @@ class GadgetCore(
     fun touch(touching: Boolean, x: Int, y: Int) = post { if (handle != 0L) NativeCore.touch(handle, touching, x, y) }
 
     fun button(button: Int, pressed: Boolean) = post { if (handle != 0L) NativeCore.button(handle, button, pressed) }
+
+    /** Microphone off stops all capture, wake listening included, until it is turned on again. */
+    fun setMicrophoneEnabled(enabled: Boolean) = post { audio.setMicrophoneEnabled(enabled) }
 
     /** Runs a serial-console command (such as `set screen_timeout 60`) on the core thread. */
     fun console(line: String, callback: (String) -> Unit) = post {
@@ -136,27 +150,21 @@ class GadgetCore(
         onFrame()
     }
 
-    override fun micStart(rate: Int): Boolean {
-        micOn = mic.start(rate)
-        return micOn
-    }
+    override fun micStart(rate: Int) = audio.micStart(rate)
 
-    override fun micStop() {
-        micOn = false
-        mic.stop()
-    }
+    override fun micStop() = audio.micStop()
 
-    override fun speakerBegin(rate: Int) = speaker.begin(rate)
+    override fun speakerBegin(rate: Int) = audio.speakerBegin(rate)
 
-    override fun speakerWrite(samples: ShortArray) = speaker.write(samples)
+    override fun speakerWrite(samples: ShortArray) = audio.speakerWrite(samples)
 
-    override fun speakerEnd() = speaker.end()
+    override fun speakerEnd() = audio.speakerEnd()
 
-    override fun speakerAbort() = speaker.abort()
+    override fun speakerAbort() = audio.speakerAbort()
 
-    override fun speakerBusy() = speaker.busy()
+    override fun speakerBusy() = audio.speakerBusy()
 
-    override fun speakerVolume(percent: Int) = speaker.setVolume(percent)
+    override fun speakerVolume(percent: Int) = audio.speakerVolume(percent)
 
     override fun storageGet(key: ByteArray): ByteArray? = store.get(key.decodeToString())?.toByteArray()
 
@@ -171,6 +179,17 @@ class GadgetCore(
     override fun log(level: Int, message: ByteArray) {
         // The core logs connection state and action failures, never device keys.
         Log.println(LOG_PRIORITY.getOrElse(level) { Log.INFO }, TAG, message.decodeToString())
+    }
+
+    private fun audioChanged(status: AudioStatus) {
+        if (status.detections != detections) {
+            detections = status.detections
+            Log.i(WAKE_TAG, "heard \"Hey Hermes\" (score %.3f, detection %d)".format(status.lastDetectionScore ?: Float.NaN, detections))
+        } else {
+            Log.i(WAKE_TAG, "microphone: ${status.state}" + (status.problem?.let { " ($it)" } ?: ""))
+        }
+        audioStatus = status
+        onAudio(status)
     }
 
     // Like the Linux client: a device that can't save its state (such as a new key) stops
@@ -192,6 +211,7 @@ class GadgetCore(
         private const val TICK_MS = 10L
         private const val STOP_WAIT_MS = 2000L
         private const val TAG = "HermesGadget"
+        private const val WAKE_TAG = "HermesWake"
         private val LOG_PRIORITY = intArrayOf(Log.DEBUG, Log.INFO, Log.WARN, Log.ERROR)
     }
 }

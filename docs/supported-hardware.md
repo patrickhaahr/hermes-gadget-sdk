@@ -32,7 +32,7 @@ See the [Linux guide](linux.md) for installation and peripherals, and the [verif
 
 ## Android phones
 
-Phones running Android 11 or newer have an experimental [Android client](android.md). It uses the phone's microphone, speaker and touch screen, and can run as a dedicated device that starts on boot. Install it with `adb`.
+Phones running Android 11 or newer have an experimental [Android client](android.md). It uses the phone's microphone, speaker and touch screen, and can run as a dedicated device that starts on boot. It also listens on the phone for "Hey Hermes"; for now a detection only shows on screen. Install it with `adb`.
 
 See the [Android guide](android.md) for setup, and the [verification table](hardware-validation.md) for testing status.
 

@@ -25,6 +25,10 @@ import android.widget.TextView
  * and for the core's console commands, answered in the log (`adb logcat -s HermesGadget`):
  *
  *     adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es console "'set screen_timeout 60'"
+ *
+ * and to turn the microphone off or on (`adb logcat -s HermesWake` shows its state):
+ *
+ *     adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es microphone off
  */
 class SetupActivity : Activity() {
     private lateinit var server: EditText
@@ -32,11 +36,16 @@ class SetupActivity : Activity() {
     private lateinit var token: EditText
     private lateinit var message: TextView
     private lateinit var status: TextView
+    private lateinit var microphoneButton: Button
     private val poll = object : Runnable {
         override fun run() {
             val core = GadgetRuntime.core
-            if (core == null) status.text = GadgetRuntime.stopReason ?: getString(R.string.status_stopped)
-            else core.status { json -> status.post { status.text = json } }
+            val audio = GadgetRuntime.audioStatus(this@SetupActivity)
+            val microphone = "microphone: ${audio.state}, wake detections: ${audio.detections}" +
+                (audio.problem?.let { " ($it)" } ?: "")
+            showMicrophoneChoice()
+            if (core == null) status.text = (GadgetRuntime.stopReason ?: getString(R.string.status_stopped)) + "\n" + microphone
+            else core.status { json -> status.post { status.text = json + "\n" + microphone } }
             status.postDelayed(this, 1000)
         }
     }
@@ -47,6 +56,14 @@ class SetupActivity : Activity() {
             val core = GadgetRuntime.core
             if (core == null) Log.w(TAG, "console: the gadget is not running")
             else core.console(line) { reply -> Log.i(TAG, "console: $line -> $reply") }
+            finish()
+            return
+        }
+        intent.getStringExtra(EXTRA_MICROPHONE)?.let { value ->
+            when (value) {
+                "on", "off" -> GadgetRuntime.setMicrophoneEnabled(this, value == "on")
+                else -> Log.w(TAG, "microphone: expected on or off, not $value")
+            }
             finish()
             return
         }
@@ -72,10 +89,11 @@ class SetupActivity : Activity() {
             isSingleLine = true
             column.addView(this)
         }
-        fun button(text: Int, action: () -> Unit) = column.addView(Button(this).apply {
+        fun button(text: Int, action: () -> Unit) = Button(this).apply {
             setText(text)
             setOnClickListener { action() }
-        })
+            column.addView(this)
+        }
 
         label(R.string.label_server)
         server = field(saved?.server, "ws://zaza:8765/gadget", InputType.TYPE_TEXT_VARIATION_URI)
@@ -88,6 +106,11 @@ class SetupActivity : Activity() {
         button(R.string.action_save) {
             if (apply(GadgetConfig(server.text.toString().trim(), name.text.toString().trim(), token.text.toString()))) finish()
         }
+        microphoneButton = button(R.string.action_microphone_off) {
+            GadgetRuntime.setMicrophoneEnabled(this, !GadgetRuntime.microphone(this).enabled)
+            showMicrophoneChoice()
+        }
+        showMicrophoneChoice()
         button(R.string.action_battery) {
             val pm = getSystemService(PowerManager::class.java)
             if (pm.isIgnoringBatteryOptimizations(packageName)) message.setText(R.string.battery_ok)
@@ -132,6 +155,9 @@ class SetupActivity : Activity() {
         super.onPause()
     }
 
+    private fun showMicrophoneChoice() = microphoneButton.setText(
+        if (GadgetRuntime.microphone(this).enabled) R.string.action_microphone_off else R.string.action_microphone_on)
+
     private fun apply(config: GadgetConfig): Boolean {
         val problem = config.problem()
         if (problem != null) {
@@ -149,6 +175,7 @@ class SetupActivity : Activity() {
 
     private companion object {
         const val EXTRA_CONSOLE = "console"
+        const val EXTRA_MICROPHONE = "microphone"
         const val TAG = "HermesGadget"
     }
 }

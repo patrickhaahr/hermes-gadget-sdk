@@ -26,7 +26,8 @@ assets/mascot/          The mascot master image and its attribution
 | Adapter on real Hermes classes | `HERMES_AGENT_DIR=../hermes-agent ../hermes-agent/.venv/bin/python -m pytest tests/test_adapter_hermes.py` | A Hermes checkout and its virtualenv |
 | Full gateway end to end | `HERMES_GADGET_E2E=1 pytest tests/test_gateway_e2e.py` | The above; spawns `hermes gateway run` with a temporary `HERMES_HOME` |
 | Browser installer | `npm ci && npm test` in `site/` | Node.js 22 |
-| Android client | `./gradlew assembleDebug testDebugUnitTest` in `android/` | JDK 17, the Android SDK and NDK ([versions](android.md#build-from-source)), CMake + compiler for the host JNI tests |
+| Android client | `./gradlew assembleDebug testDebugUnitTest` in `android/` | JDK 17, the Android SDK and NDK ([versions](android.md#build-from-source)), CMake + compiler for the host JNI tests, network access for the pinned wake models (the wake tests need Linux x86-64) |
+| Android wake pipeline on a phone | `adb shell am instrument …` ([steps](android.md#build-from-source)) | A phone with the debug and test APKs installed with `adb install -r` |
 | Home Assistant / MQTT examples | `pytest tests/test_automation_examples.py` | Built native library and the `mqtt` extra; local peers need no external accounts |
 
 The Python jobs in `.github/workflows/ci.yml` run under `xvfb-run` so the desktop controls run against the simulator core and development hub. On a headless Linux machine, use `xvfb-run -a pytest`. Without a display, the window tests skip; set `HERMES_GADGET_UI_TESTS=1` to require them.

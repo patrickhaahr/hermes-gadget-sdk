@@ -10,20 +10,28 @@ import android.view.KeyEvent
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import android.widget.FrameLayout
 
 /**
- * The gadget's face, full screen. It is also the home screen, so it comes back
- * after a reboot. Hold volume-up for three seconds to open the settings.
+ * The gadget's face, full screen, with the microphone's state over it. It is
+ * also the home screen, so it comes back after a reboot. Hold volume-up for
+ * three seconds to open the settings.
  */
 class MainActivity : Activity() {
     private lateinit var face: FaceView
+    private lateinit var listening: ListeningChip
     private var backlight = -1
     private val openSettings = Runnable { startActivity(Intent(this, SetupActivity::class.java)) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         face = FaceView(this)
-        setContentView(face)
+        listening = ListeningChip(this) { enable -> GadgetRuntime.setMicrophoneEnabled(this, enable) }
+        setContentView(FrameLayout(this).apply {
+            addView(face)
+            addView(listening.chip)
+            addView(listening.banner)
+        })
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
@@ -40,6 +48,9 @@ class MainActivity : Activity() {
         super.onResume()
         Kiosk.enter(this)
         GadgetRuntime.frameListener = { face.post(::refresh) }
+        GadgetRuntime.audioListener = { status -> face.post { listening.show(status) } }
+        // Detections while the face was hidden are old news.
+        listening.show(GadgetRuntime.audioStatus(this), announce = false)
         val missing = listOfNotNull(
             Manifest.permission.RECORD_AUDIO,
             if (Build.VERSION.SDK_INT >= 33) Manifest.permission.POST_NOTIFICATIONS else null,
@@ -53,6 +64,7 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         GadgetRuntime.frameListener = null
+        GadgetRuntime.audioListener = null
         super.onPause()
     }
 

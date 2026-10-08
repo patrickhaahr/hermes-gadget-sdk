@@ -21,7 +21,22 @@ The dependencies below keep their own licenses and are downloaded when you build
 | [lgpio](https://github.com/joan2937/lg/blob/master/UNLICENCE) | Linux GPIO access, installed from Raspberry Pi OS | Unlicense |
 | [python-sounddevice](https://github.com/spatialaudio/python-sounddevice/blob/master/LICENSE), [PortAudio](https://www.portaudio.com/license.html) | Optional live microphone and speaker on Linux | MIT licenses |
 | [OkHttp and Okio](https://github.com/square/okhttp/blob/parent-4.12.0/LICENSE.txt), [Kotlin standard library](https://github.com/JetBrains/kotlin/blob/master/license/LICENSE.txt) | The Android client's WebSocket connection and runtime, packaged into the APK | Apache 2.0 |
+| [LiteRT](https://github.com/google-ai-edge/LiteRT) 1.4.2 (`com.google.ai.edge.litert:litert`) | Runs the wake word models in the Android client, packaged into the APK | Apache 2.0 |
+| [pyopen-wakeword](https://github.com/rhasspy/pyopen-wakeword) 1.1.0 wheel's TensorFlow Lite C library | Runs the wake models in the Android host tests only; downloaded by the test build, not distributed | Apache 2.0 |
 | [Paho MQTT](https://github.com/eclipse-paho/paho.mqtt.python/blob/v2.1.0/LICENSE.txt) | Optional MQTT sensor/action example | EPL 2.0 / EDL 1.0 dual license; installed package includes both texts |
+
+## Wake word models
+
+The Android client's wake listening uses three TensorFlow Lite models. The build downloads them from the pinned URLs in `android/app/build.gradle.kts` and checks their SHA-256 hashes. They are not stored in this repository, but every APK built from it includes them under `assets/wake/`.
+
+| Model | Source | License |
+|---|---|---|
+| `melspectrogram.tflite`, `embedding_model.tflite` | [openWakeWord v0.5.1 release](https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1) (David Scripka). Byte-identical to the copies in the pyopen-wakeword 1.1.0 wheel. The embedding model re-implements Google's [speech_embedding](https://tfhub.dev/google/speech_embedding/1) model (Apache 2.0). | openWakeWord licenses its code under Apache 2.0 and all of its pre-trained models under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/), because of their training data |
+| `hey_hermes.tflite` | [Hermes Agent](https://github.com/NousResearch/hermes-agent/blob/818c13be1dc4fd28987e1e881a9408224afd4535/tools/wakewords/README.md) at commit `818c13be1dc4fd28987e1e881a9408224afd4535`. Trained with the openWakeWord pipeline on synthetic speech, on top of the embedding model above. | MIT, © 2025 Nous Research (the repository's license; its README says redistribution is permitted under the openWakeWord license) |
+
+Because of the CC BY-NC-SA 4.0 terms, an APK built from this repository may be used and shared for non-commercial purposes only, with this attribution. The models are not modified.
+
+The recorded speech in `android/app/src/wakeFixtures`, used by the wake tests, was synthesized with [Piper](https://github.com/OHF-Voice/piper1-gpl) 1.8.0 (GPL 3.0; used to generate the audio, not distributed). It used two voices from [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) at revision `c10ece1aade47bb51c153c893d14e5bf8e5b7117`: `en_US-ljspeech-high`, trained on [LJ Speech](https://keithito.com/LJ-Speech-Dataset/) (public domain), and `en_US-libritts_r-medium`, trained on [LibriTTS-R](https://www.openslr.org/141/) (CC BY 4.0, Koizumi et al.). `android/tools/wake_fixtures.py` records how.
 
 ## Artwork
 

@@ -18,4 +18,15 @@
     <string name="kiosk_paused">Kiosk mode is paused until you return to it here.</string>
     <string name="kiosk_release_confirm">The phone becomes an ordinary phone again. Making this app the device owner again needs adb and a phone with no accounts.</string>
     <string name="status_stopped">The gadget is not running.</string>
+    <string name="wake_listening">Listening for “Hey Hermes”</string>
+    <string name="wake_microphone_off">Microphone off</string>
+    <string name="wake_recording">Recording</string>
+    <string name="wake_paused">Wake listening paused</string>
+    <string name="wake_handed_off">Microphone in use</string>
+    <string name="wake_unavailable">Wake listening unavailable</string>
+    <string name="wake_toggle_off">Tap to turn the microphone off</string>
+    <string name="wake_toggle_on">Tap to turn the microphone on</string>
+    <string name="wake_heard">Heard “Hey Hermes”</string>
+    <string name="action_microphone_off">Turn the microphone off</string>
+    <string name="action_microphone_on">Turn the microphone on</string>
 </resources>
