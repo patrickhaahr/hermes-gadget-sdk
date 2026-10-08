@@ -1,0 +1,13 @@
+# Detect wake locally before starting voice calls
+
+Hands-free activation must detect the wake phrase locally before starting a voice call, and microphone audio must stay on the phone while waiting for that phrase. An explicit Start call action is also permitted. This privacy boundary applies to subscription GPT-Live and the requested local open-source voice alternative; a server-side wake detector receiving continuous microphone audio would violate the user's privacy requirement. The initial interaction is explicit activation, call establishment, an audible ready cue, then the user's request. This interaction does not require uploading a buffered recording from before wake detection.
+
+Implementation and initial physical testing target the dedicated OnePlus 8T on the user's fork. The user reports that kiosk mode and reboot startup already work; that report does not establish wake detection or voice-call behavior. An ordinary Hermes phone app is a later target, so the interaction must not be defined solely around kiosk use. Subscription GPT-Live is the first voice backend; the local open-source alternative follows later, with its model and hosting location still undecided.
+
+Initial access is over the LAN and Tailscale. A server bind to `0.0.0.0` permits listening on its IPv4 interfaces; the phone uses the host's actual LAN or Tailscale address. This bind does not by itself establish Tailscale reachability or authenticated access.
+
+The initial end-of-call controls are an on-screen End call control, the explicit spoken phrase "Goodbye Hermes", and 60 seconds without speech when no Hermes task is pending. After hang-up the phone returns to local wake listening. A failed startup or dropped call gives brief failure feedback and returns to wake listening; another wake is required to try again. Automatic reconnection and switching to another voice backend are deferred.
+
+An explicit Microphone off control stops wake listening and any active call; it takes precedence over automatic return to wake listening and remains off until explicitly re-enabled. Ordinary gadget hold-to-talk remains available while idle with the microphone enabled. These capture modes must coordinate microphone and speaker ownership rather than run concurrently.
+
+Initial physical acceptance targets "Hey Hermes" detection at 1-3 metres in a normal room, using the 8T's own loudspeaker at the user's usual volume. Echo cancellation and user interruptions must be tested in that same setup. The accepted startup target is a ready cue within five seconds on a healthy LAN, with clear failure feedback after 20 seconds. These are targets, not measured results.
