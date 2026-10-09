@@ -84,6 +84,9 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "fake-openai/1"
     requests_log: list = []  # (path, summary) of every POST, for test assertions
     log_file: str | None = None
+    blocked_text: str | None = None
+    entered = threading.Event()
+    release = threading.Event()
 
     def log_message(self, fmt, *args):  # quiet
         pass
@@ -113,7 +116,7 @@ class Handler(BaseHTTPRequestHandler):
         if path.endswith("/chat/completions"):
             body = json.loads(raw or b"{}")
             summary.update(tools=sorted(t.get("function", {}).get("name", "") for t in body.get("tools") or []),
-                           user=_last_user_text(body.get("messages") or [])[-200:])
+                           user=_last_user_text(body.get("messages") or [])[-200:], messages=body.get("messages"))
         self._record(summary)
         if path.endswith("/chat/completions"):
             self._chat(body)
@@ -157,6 +160,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"text": TRANSCRIPT})
 
     def _chat(self, body: dict) -> None:
+        if Handler.blocked_text and Handler.blocked_text in _last_user_text(body.get("messages") or []):
+            Handler.entered.set()
+            Handler.release.wait(90)
         plan = plan_reply(body)
         cid = "chatcmpl-" + uuid.uuid4().hex[:12]
         created = int(time.time())
@@ -203,6 +209,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def start(port: int = 0) -> tuple[ThreadingHTTPServer, int]:
+    Handler.requests_log = []
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server, server.server_address[1]

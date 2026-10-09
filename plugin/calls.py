@@ -21,7 +21,7 @@ import asyncio
 import importlib.util
 import logging
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable, Optional, Protocol
 
@@ -111,6 +111,8 @@ class _Call:
     session: object  # hub.DeviceSession
     ref: Optional[str] = None  # the broker's reference, once started
     ended: bool = False
+    profile: Optional[str] = None
+    delegations: dict[str, dict] = field(default_factory=dict)  # receipts for this call; never re-execute an id
 
 
 class DeviceCalls:
@@ -131,6 +133,18 @@ class DeviceCalls:
         call = self._calls.get(device_id)
         return call is not None and call.ref is not None
 
+    def owns(self, call: _Call) -> bool:
+        return self._calls.get(call.session.device_id) is call and not call.ended and not call.session.closed
+
+    async def task_call(self, session, call_id: str) -> _Call:
+        """The currently authorized owner of a task request; never trust wire identity fields."""
+        profile = await self._admit(session)
+        call = self._calls.get(session.device_id)
+        if (call is None or call.session is not session or call.id != call_id or call.ref is None
+                or not self.owns(call) or profile != call.profile):
+            raise CallError("not_connected", "The originating call is no longer connected. The task was not submitted.")
+        return call
+
     async def start(self, session, msg: dict) -> None:
         call_id = str(msg.get("id") or "")[:MAX_ID]
         offer = msg.get("offer")
@@ -147,6 +161,7 @@ class DeviceCalls:
         self._calls[session.device_id] = call  # before any await, so a second start is busy
         try:
             profile = await self._admit(session)
+            call.profile = profile
         except CallError as exc:
             self._drop(call)
             await _error(session, call_id, exc.code, exc.message)

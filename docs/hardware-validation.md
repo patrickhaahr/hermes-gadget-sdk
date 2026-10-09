@@ -10,7 +10,8 @@ its wake tests run the real wake models with the TensorFlow Lite C library.
 Physical reports record [wake listening](#oneplus-8t-wake-listening-report),
 [Hermes voice requests](#oneplus-8t-hermes-voice-checks),
 [Live calls](#oneplus-8t-live-call-checks) and their
-[echo and interruption](#oneplus-8t-echo-and-interruption-checks) on a OnePlus 8T.
+[echo and interruption](#oneplus-8t-echo-and-interruption-checks), and
+[Live task handoffs](#oneplus-8t-live-task-handoffs) on a OnePlus 8T.
 They do not cover the rest of the physical checklist.
 
 Firmware builds and simulator tests check software behavior. A physical verification report records what worked on a particular board revision, wiring, and firmware commit. A passing build alone does not establish that a microphone, power circuit, or display works on a device.
@@ -140,6 +141,40 @@ The voice model twice treated "Tell me a long story about …" as a Hermes task 
 Test doubles, kept separate from the measurements above: `LiveCallTest` uses a scripted `CallMedia`, so it can't test echo or interruption. The phone has no interruption logic of its own to test.
 
 Not covered: speaking from 2–3 m, a noisy room, the phone upright or on a stand, other volumes, screen-off calls, Tailscale, other phones and plans, or a desktop call with a person speaking. Seven interruptions don't give a reliable failure rate for lost words. The phone stays experimental.
+
+## OnePlus 8T Live task handoffs
+
+Tested on 2026-10-09 for fork issue #6 on the same OnePlus 8T KB2005, Android 14, paired over `ws://10.0.10.3:8765/gadget`. Wireless ADB used `10.0.10.156:39859`. The SDK was `a386773` plus this change on `android/voice-tasks`; the APK SHA-256 was `886d17d7cc5e439155aabbcf77141222e95cf3261577a1f8e36e0f374fdc1560`. It was installed with `adb install -r` and the existing debug key. The full `device.properties` hash matched before and after installation, and Android still reported the gadget as device owner. The phone reconnected online and paired. The host ran Hermes v0.21.6 (`818c13be`), codex-cli 0.160.0 on the existing subscription, the updated runtime gadget plugin, and Live Voice `6ec9a6d` plus the phone conversation-policy change. No Nix settings, credentials or pairing records changed; only the gadget runtime copy and Live Voice broker file were updated, then `hermes-agent` restarted.
+
+The owner tapped **Start call** and spoke the requests. Measurements below are from production `HermesCall` metadata and a read-only check of the existing Hermes session, without capturing audio or logging transcripts/results:
+
+| Check | Observed result |
+|---|---|
+| Start to ready cue | 2,895 ms |
+| First task | Native delegation requested at 15:46:20.721; accepted at 15:46:20.727; completed at 15:46:26.405. The same delegation and Hermes turn id appeared in both receipts. Acceptance took 6 ms and execution/completion 5.678 s. |
+| Actual Hermes execution | The task reached the existing `gadget` DM for this device, session `20261007_225609_0cb83619`, in profile `default`, using its configured `gpt-6-luna` task model. Hermes executed the `hostname` terminal command; its tool result contained the expected hostname. The conversation predated the call. |
+| Second task | A different native delegation was requested at 15:46:37.741, accepted 9 ms later and completed at 15:46:48.209 (10.459 s after acceptance), in the same gadget session. |
+| Result delivery | One assistant turn followed each completed receipt. This metadata establishes delivery to the voice service; the owner's listening report is separate evidence for what was audible. |
+| Other conversation and hang-up | Several further user/assistant turns occurred without task delegations. The owner ended the call at 15:47:24; the gadget connection remained up. |
+
+The owner subsequently answered yes to the live-test report request and authorized merging the implementation. No separate counts or details about clipped words or unexpected speech were supplied; the timing and correlation measurements above remain separate from that confirmation.
+
+The task-status note uses the existing call feedback surface. These screenshots were captured on the 8T with a temporary documentation fixture feeding the production call widget scripted states; they illustrate the controls and note, not an active call or an additional live-call measurement. The fixture was removed afterwards.
+
+| Before a task receipt | Task accepted |
+|---|---|
+| ![Call controls without a task note](images/android-task-status-before.png) | ![Hermes is working; you can keep talking](images/android-task-status-after.png) |
+
+Automated checks, separate from the live service:
+
+- `devenv shell -- bash -c 'cd android && ./gradlew --no-daemon assembleDebug testDebugUnitTest assembleDebugAndroidTest'`: passed; 46 host tests, including 16 `LiveCallTest` cases. Those call tests use scripted media and the real JNI core, not WebRTC audio. They cover duplicate/stale task events and receipts, matching turn ids, busy feedback, an older host, and an on-screen approval while the call owns the microphone.
+- The packaged-Hermes command described in [development](development.md) ran `tests/test_adapter_hermes.py tests/test_hub_calls.py tests/test_hermes_compat.py tests/test_gateway_e2e.py tests/test_protocol.py tests/test_sim_hub.py`: 75 passed. `HERMES_GADGET_E2E=1`, `HERMES_GADGET_TEST_PYTHON` named the deployed Hermes Python, and `HERMES_LIVE_VOICE_DIR` named the local broker checkout. The task test drives an actual gateway, model/tool turn and gadget history with a controlled model and fake app-server; it verifies admission, duplicate receipts, busy feedback, silence after hang-up and no late result in a new call. The adapter test separately verifies current authorization and gateway failure.
+- Live Voice `python -m pytest tests -q`: 63 passed, including isolated calls, execution restrictions and distinct phone/desktop conversation policies, against its fake app-server.
+- `cmake --build build/host --parallel 4` and `ctest --test-dir build/host --output-on-failure`: passed, one core suite. `npm --prefix site test` and `npm --prefix site run build`: 29 tests passed, 20 guides built.
+
+The gateway regression first failed on the baseline because `call.task` produced no receipt, then passed with this change. An initial run used a test environment without Hermes/websockets; switching to the packaged runtime resolved it. Two integration setup failures were corrected: the initial pairing event had been included in task-only assertions, and the fake app-server path needed to be absolute. A bare host `ctest` was unavailable; it passed inside the repository's devenv shell. These were not voice measurements.
+
+This report does not qualify room accuracy, task approvals on the physical phone, spoken busy feedback, or the full hang-up/disconnect/new-call matrix on the live service. Those lifecycle properties have automated coverage here; advanced physical qualification follows separately. The phone remains experimental.
 
 ## Waveshare 1.85C V2 partial physical report
 

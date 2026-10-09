@@ -11,6 +11,9 @@ interface CallMedia {
 
     fun setAnswer(sdp: String)
 
+    /** Resolve a native voice delegation; the voice reads this once. False means it wasn't sent. */
+    fun respond(delegation: String, text: String): Boolean
+
     /** Releases the microphone, the speaker and the connection. */
     fun close()
 }
@@ -23,6 +26,8 @@ interface CallMediaEvents {
     fun ready()
 
     fun failed(reason: String)
+
+    fun delegation(id: String, text: String)
 }
 
 fun interface CallMediaFactory {
@@ -87,13 +92,17 @@ class LiveCall(
         var media: CallMedia? = null
         var announced = false // call.start went out, so the server has something to stop
         var state = CallState.STARTING
+        val tasks = mutableMapOf<String, Task>()
     }
+
+    private class Task(var turn: String? = null, var answered: Boolean = false)
 
     private var current: Attempt? = null
     private var counter = 0
     private var linkUp = false
     private var paired = false
     private var hostOffersCalls = false // the server's welcome listed Live calls
+    private var hostOffersTasks = false
     private var feedback: String? = null
     private var readyMs: Long? = null
     private var published: CallStatus? = null
@@ -152,6 +161,7 @@ class LiveCall(
         linkUp = true
         paired = false
         hostOffersCalls = false
+        hostOffersTasks = false
         publish()
     }
 
@@ -159,6 +169,7 @@ class LiveCall(
         linkUp = false
         paired = false
         hostOffersCalls = false
+        hostOffersTasks = false
         current?.let { teardown(it, "Lost the connection to Hermes") }
         publish()
     }
@@ -178,6 +189,7 @@ class LiveCall(
             "welcome" -> {
                 paired = msg.optBoolean("paired")
                 hostOffersCalls = (msg.optJSONArray("calls") ?: JSONArray()).let { calls -> (0 until calls.length()).any { calls.optString(it) == KIND } }
+                hostOffersTasks = msg.optBoolean("call_tasks")
                 publish()
             }
             "paired" -> {
@@ -208,6 +220,10 @@ class LiveCall(
                 })
                 return false
             }
+            "call.task.status" -> {
+                taskStatus(msg)
+                return false
+            }
         }
         return true
     }
@@ -225,6 +241,62 @@ class LiveCall(
         override fun offer(sdp: String) = post { if (current === attempt) sendOffer(attempt, sdp) }
         override fun ready() = post { if (current === attempt) ready(attempt) }
         override fun failed(reason: String) = post { if (current === attempt) fail(attempt, reason) }
+        override fun delegation(id: String, text: String) = post { if (current === attempt) delegate(attempt, id, text) }
+    }
+
+    private fun delegate(attempt: Attempt, id: String, text: String) {
+        if (attempt.state != CallState.ACTIVE || id.isEmpty() || id.length > 64 || id in attempt.tasks) return
+        if (attempt.tasks.size >= 256) {
+            hangUp(attempt, "This call has reached its task request limit")
+            return
+        }
+        val task = Task()
+        attempt.tasks[id] = task // duplicate service events must never submit again
+        if (!hostOffersTasks) {
+            task.answered = true
+            attempt.media?.respond(id, "This Hermes host does not support tasks from phone calls. Ask the user to update the gadget plugin. You can still converse normally.")
+            return
+        }
+        if (text.isBlank() || text.length > 4000) {
+            task.answered = true
+            attempt.media?.respond(id, "The task request was empty or too long. Ask the user to rephrase it. Nothing was submitted.")
+            return
+        }
+        val request = JSONObject().put("type", "call.task").put("id", attempt.id).put("delegation", id).put("text", text)
+        log("call ${attempt.id}: task $id requested (${text.length} characters)")
+        if (!send(request.toString())) {
+            task.answered = true
+            attempt.media?.respond(id, "The connection to Hermes failed. Task acceptance is unknown. Do not retry automatically.")
+            feedback = "Could not confirm task acceptance; nothing will be retried"
+            publish()
+        }
+    }
+
+    private fun taskStatus(msg: JSONObject) {
+        val attempt = current?.takeIf { it.id == msg.optString("id") && it.state == CallState.ACTIVE } ?: return
+        val id = msg.optString("delegation")
+        val task = attempt.tasks[id]?.takeUnless { it.answered } ?: return
+        val state = msg.optString("state")
+        val turn = msg.optString("turn")
+        if (state == "accepted") {
+            if (turn.isEmpty() || (task.turn != null && task.turn != turn)) return
+            task.turn = turn
+            feedback = "Hermes is working; you can keep talking"
+        } else if (state in listOf("completed", "busy", "failed", "not_connected")) {
+            if (task.turn != null && task.turn != turn) return
+            task.answered = true // a duplicate receipt must never speak the result twice
+            val text = msg.optString("text").ifBlank { "The Hermes task could not be completed." }
+            val response = if (state == "completed") "Hermes task result. Answer the user briefly with this:\n$text" else text
+            val spoken = attempt.media?.respond(id, response) == true
+            feedback = if (!spoken) "The task response could not be sent to the voice" else when (state) {
+                "completed" -> "Hermes task completed"
+                "busy" -> "Hermes is busy; wait, then ask again"
+                "not_connected" -> "The task's call is no longer connected"
+                else -> "Hermes task failed"
+            }
+        } else return
+        log("call ${attempt.id}: task $id $state${if (turn.isNotEmpty()) " (turn $turn)" else ""}")
+        publish()
     }
 
     private fun sendOffer(attempt: Attempt, sdp: String) {
