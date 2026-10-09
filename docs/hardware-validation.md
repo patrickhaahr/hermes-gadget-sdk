@@ -252,6 +252,17 @@ The following captures show the actual phone settings before and after enabling 
 
 On the final candidate, an explicit call at 17:54:26.959 was ready in **1.855 s**. With no recognized speech or pending turn, media teardown began at 17:55:28.822, **60.008 s after readiness**; the idle-ended status was published at 17:55:29.018 and listening resumed at 17:55:29.547, **529 ms after release**. This is an actual idle/media/rearm measurement, not proof of spoken-command recognition. Live voice remained selected after APK replacement.
 
+The final candidate then passed `devenv shell -- python android/tools/live_task_lifecycle.py`: **one instrumentation test, four scenarios, 143 s**. Each read-only terminal task produced its marker once in the stored terminal result and final answer. The check used real WebRTC, Android audio and the paired production host, with scripted delegation JSON at the production media boundary. Fresh calls stayed active while older tasks finished, received busy admission and received no old result injection. The playback callback observed no gadget assistant audio after release, including with Microphone off; each release returned Android audio mode to normal. Companion cleanup completed and restored the paired service.
+
+| Scenario | Originating call ready | Release after action | Stored completion checked after action |
+|---|---:|---:|---:|
+| Hang-up | 11.818 s | 569 ms | 31.334 s |
+| Microphone off | 1.801 s | 569 ms | 28.821 s |
+| Reconnect | 1.706 s | 593 ms | 29.232 s |
+| Scripted media failure | 1.785 s | 635 ms | 28.469 s |
+
+One fresh call also needed **12.254 s** to become ready. These two slow starts exceed the 5 s target; the passing lifecycle assertions do not qualify service readiness or native audible busy feedback. The scripted media failure does not establish behavior during an external network outage. This successful rerun supersedes the earlier incomplete lifecycle qualification without erasing that service failure.
+
 The phone remains experimental. Spoken-command reliability, repeated human wake/goodbye cycles at a measured distance, screen-off full Live cycles, Tailscale, reboot behavior and the full deployment qualification belong to issue #9. Existing kiosk/device-owner configuration was preserved, not requalified by a reboot. Missed turn completion while disconnected conservatively leaves automatic idle hang-up paused; explicit End call remains available, and no task is replayed. The service's transcript and usage-limit behavior remain external limits.
 
 ## Record a physical test
