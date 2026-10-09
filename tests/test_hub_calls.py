@@ -68,16 +68,19 @@ class ScriptedBroker:
 class Device:
     """A paired-device protocol client that answers pings and keeps every frame it receives."""
 
-    def __init__(self, url: str, name: str = "phone", caps: dict | None = None):
+    def __init__(self, url: str, name: str = "phone", caps: dict | None = None, key: bytes | None = None):
         from websockets.sync.client import connect
 
-        self.key = secrets.token_bytes(32)
+        self.key = key if key is not None else secrets.token_bytes(32)
         self.device_id = protocol.device_id_for_key(self.key)
         self.ws = connect(url, subprotocols=[protocol.SUBPROTOCOL], open_timeout=5)
         self.ws.send(json.dumps(protocol.message("hello", proto=protocol.VERSION, device_id=self.device_id,
                                                  name=name, board="android", caps=caps or {})))
-        assert json.loads(self.ws.recv(timeout=5))["type"] == "challenge"
-        self.ws.send(json.dumps(protocol.message("auth", key=base64.b64encode(self.key).decode())))
+        challenge = json.loads(self.ws.recv(timeout=5))
+        assert challenge["type"] == "challenge"
+        auth = ({"mac": protocol.auth_mac(self.key, self.device_id, challenge["nonce"])}
+                if challenge["enrolled"] else {"key": base64.b64encode(self.key).decode()})
+        self.ws.send(json.dumps(protocol.message("auth", **auth)))
         self.welcome = json.loads(self.ws.recv(timeout=5))
         assert self.welcome["type"] == "welcome", self.welcome
         self.frames: queue.Queue = queue.Queue()

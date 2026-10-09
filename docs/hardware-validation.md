@@ -11,7 +11,8 @@ Physical reports record [wake listening](#oneplus-8t-wake-listening-report),
 [Hermes voice requests](#oneplus-8t-hermes-voice-checks),
 [Live calls](#oneplus-8t-live-call-checks) and their
 [echo and interruption](#oneplus-8t-echo-and-interruption-checks), and
-[Live task handoffs](#oneplus-8t-live-task-handoffs) on a OnePlus 8T.
+[Live task handoffs](#oneplus-8t-live-task-handoffs) and
+[task/call lifetime](#oneplus-8t-task-and-call-lifetime-checks) on a OnePlus 8T.
 They do not cover the rest of the physical checklist.
 
 Firmware builds and simulator tests check software behavior. A physical verification report records what worked on a particular board revision, wiring, and firmware commit. A passing build alone does not establish that a microphone, power circuit, or display works on a device.
@@ -189,6 +190,40 @@ This report does not qualify room accuracy, task approvals on the physical phone
 - **Not implemented:** software echo cancellation, battery telemetry and software shutdown.
 
 The port stays experimental.
+
+## OnePlus 8T task and call lifetime checks
+
+Tested on 2026-10-09 for fork issue #7 on the OnePlus 8T KB2005, Android 14, with its existing device-owner kiosk setup, gadget identity and LAN pairing at `ws://10.0.10.3:8765/gadget`. Wireless ADB was `10.0.10.156:39859`. The production Android code is unchanged from SDK `820732f`; the debug APK SHA-256 is `886d17d7cc5e439155aabbcf77141222e95cf3261577a1f8e36e0f374fdc1560`. App and test APKs were installed with `adb install -r` and the existing signing keys. The complete `no_backup/device.properties` hash matched before and after the update and spoken checks; Android still reported the gadget as device owner. Hermes was v0.21.6 (`818c13be`) on zaza, codex-cli 0.160.0, and Live Voice `3514df5`. Only the gateway's plain gadget adapter copy was updated and `hermes-agent` restarted, before submitting these tasks; no Nix settings, credentials or pairing records changed.
+
+The owner spoke two requests to wait 45 seconds and report the hostname. The observations below combine production call metadata with read-only Hermes history checks. Times are local CEST; audio and transcripts were not captured.
+
+| Check | Measured result |
+|---|---|
+| Native request and hang-up | First call ready in 1,899 ms. Its task was accepted at 16:23:11.570, 10 ms after the native request. The call ended at 16:23:27.375 while work was running. Hermes executed `sleep 45; hostname`; the terminal result was stored at 16:24:01.444 and the final answer at 16:24:03.451, 51.881 s after acceptance. |
+| Fresh call during the old task | The second call was ready at 16:23:29.774, in 1,611 ms, before the first task finished. The old delegation received no completion receipt in that call, and no assistant voice turn followed the old result. The gadget conversation was retained. This run did not ask for another task while the first was still busy. |
+| Microphone off during a native task | A second task was accepted at 16:26:22.293, 12 ms after its native request. Microphone off closed WebRTC and ended the call at 16:26:22.564, 271 ms later. Hermes's terminal result was stored at 16:27:12.868 and the final answer at 16:27:53.017, 90.724 s after acceptance. The microphone stayed off through completion; Android reported `MODE_NORMAL`. No completion receipt or new call followed. |
+| Persistent history and silent display | Both tasks, their terminal results and final answers were stored once in the pre-existing gadget DM, session `20261007_225609_0cb83619`, profile `default`, task model `gpt-6-luna`. Both tool results contained the expected hostname. The owner confirmed that the later result was text on the phone's screen. |
+
+The opt-in `LiveTaskLifecycleDeviceTest`, driven by `devenv shell -- python android/tools/live_task_lifecycle.py`, then passed on the same phone: **one instrumentation test, four scenarios, 134.439 s**. It uses real WebRTC, Android capture/playback, the paired production gateway and actual Hermes terminal execution. Its delegation requests are scripted at the production media interface; they are not spoken requests. The companion checked each terminal result and final answer in the existing session before allowing the next scenario. All four markers occurred once as user requests, terminal outputs and final answers. Three fresh calls received busy feedback while old work was still active, retained their media through old-task completion, and received no old result injection. Android's active-playback callback reported no gadget assistant audio, including while Microphone off hid the ordinary playback state. The originating media closed and audio mode returned to normal in each case.
+
+| Scripted scenario | Original call ready | Voice released after action | Stored final answer | Completion observed silently after action |
+|---|---|---|---|---|
+| Hang-up, then a fresh call | 1,643 ms | 589 ms | 16:37:15.607 | 28.305 s |
+| Microphone off, kept off through completion | 3,357 ms | 588 ms | 16:37:50.527 | 30.654 s |
+| Gadget reconnect, then a fresh call | 1,633 ms | 603 ms | 16:38:22.387 | 29.742 s |
+| Scripted media failure, then a fresh call | 1,711 ms | 604 ms | 16:38:54.771 | 29.715 s |
+
+The ordinary service was restored online and paired with wake listening, with the same device-storage hash and device owner. Scripted busy delegation ids are not native voice-service items, so the service logged an unknown-item error when sent those refusals; this measures gateway admission and controller delivery, not audible busy speech. The media-failure case invokes the driver's failure callback while using real media; it does not inject an external network outage.
+
+Host checks for this change are separate from those measurements:
+
+- The packaged-Hermes environment described in [development](development.md) ran `python -m pytest tests/test_adapter_hermes.py tests/test_hub_calls.py tests/test_gateway_e2e.py tests/test_hermes_compat.py tests/test_protocol.py tests/test_sim_hub.py -q`: **79 passed**, with `HERMES_GADGET_E2E=1`, the deployed Hermes Python and `HERMES_LIVE_VOICE_DIR` pointing at the broker checkout. The real gateway uses a controlled model and fake app-server. Its lifecycle cases hold an accepted task during hang-up, disconnection/reconnection or transport replacement, then check once-only execution, stored history, busy admission, no queued work, no old result receipt and no gadget TTS, followed by successful admission of a fresh task. The adapter's duplicate-completion regression failed on the baseline by sending `turn.end` for the newer task, then passed with the turn-correlation fix.
+- `devenv shell -- bash -c 'cd android && ./gradlew --no-daemon assembleDebug testDebugUnitTest assembleDebugAndroidTest'`: **46 host tests passed** and both APKs built. Scripted media with the production JNI/controller covers accepted-task hang-up, Microphone off, media failure, transport loss, stale acknowledgments/completions and reused delegation ids in new calls. It observes no cancellation, session reset, task replay or old result delivery. It is not a WebRTC speech measurement.
+- `devenv shell -- bash -c 'cmake --build build/host --parallel 4 && ctest --test-dir build/host --output-on-failure'`: **one core suite passed**. `npm --prefix site test` and `npm --prefix site run build`: **29 tests passed; 20 guides built**.
+
+The first Python invocation used the wrong Nix dependency path and failed to import `websockets`; using the packaged environment resolved it. Initial regression setup also included the pairing trigger and omitted the loop fixture; neither failure established the product regression. An instrumentation compilation attempt used a system-only playback property; the final check uses Android's public active-playback callback. Two physical automation attempts mistook interim screen states for task completion and therefore received busy admission for their next scenario. The final check waits for stored terminal results and final answers through its host companion rather than weakening busy admission. These incomplete runs are not lifecycle acceptance measurements. After the passing phone test, the companion's property cleanup failed because adb discarded an empty argument; explicit remote quoting fixed it, and the corrected cleanup command passed separately. The property was cleared. The full four-scenario run was not repeated solely for that cleanup correction.
+
+Gateway shutdown/restart is outside the call-lifetime guarantee: in-flight work may be interrupted by Hermes itself, task slots and receipts are not durable, and disconnected phones do not recover missed voice results. Spoken busy feedback, revocation and approvals on the physical phone, and service/account concurrency were not requalified by the two spoken tasks above. The phone remains experimental.
 
 ## Record a physical test
 

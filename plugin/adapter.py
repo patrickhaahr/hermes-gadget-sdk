@@ -519,7 +519,10 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
                     await task.call.session.send_json(task.receipt)
                 except Exception:
                     pass  # keep the result in Hermes; never deliver to a new call
-        turn = self._turns.pop(chat_id, None) or event.message_id or ""
+        turn = self._turns.get(chat_id)
+        if turn is None or (event.message_id and turn != event.message_id):
+            return  # duplicate/stale completion must not end a newer turn
+        self._turns.pop(chat_id)
         session = self._session(event.source.chat_id)
         if session is None or not session.paired:
             return

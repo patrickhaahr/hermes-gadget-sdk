@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Android Live task lifetime is qualified across hang-up, Microphone off, call failure and gadget reconnection. Accepted work retains its task slot and persistent history, and old results stay silent in fresh calls. Duplicate completion notifications no longer end a newer gadget turn. Added an opt-in physical lifecycle check; gateway-restart and missed-result recovery limits are documented.
+
 - Android Live calls can delegate one task at a time to the paired phone's existing Hermes conversation and profile. Busy requests get wait feedback, duplicate delegations reuse their receipt, and the result is spoken once through the originating call. On-screen approvals remain usable. Hanging up leaves accepted work running and its completion silent; casual conversation remains available with the updated Live Voice fork.
 
 - Android: "Hey Hermes" now records one request through the existing Hermes STT/TTS path, without reopening the microphone. Silence, swipe cancellation and Microphone off discard it locally. Voice mode defaults to Hermes voice; Live voice is shown unavailable until its call integration lands.
