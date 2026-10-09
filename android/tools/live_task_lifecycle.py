@@ -66,6 +66,13 @@ def main() -> int:
         stop.set()
         watcher.join(timeout=5)
         subprocess.run(["adb", "shell", "setprop", "debug.hg7.completed", '""'], check=True)
+        relaunch()
+
+
+def relaunch() -> None:
+    """am instrument kills the app when it finishes; bring the gadget and its kiosk back."""
+    subprocess.run(["adb", "shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
+                    "-c", "android.intent.category.HOME"], check=True, capture_output=True)
 
 
 if __name__ == "__main__":

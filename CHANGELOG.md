@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Android Live calls now connect while the phone reaches Hermes over Tailscale. Tailscale's VPN doesn't let apps bypass it, so WebRTC's binding to Wi-Fi was refused and every call failed after the SDP answer. The full wake, call, task and failure flow is qualified on the 8T over the LAN and Tailscale, together with overlapping desktop calls, Microphone off across a process restart, and recovery after a reboot. Speech from a person in the room is not yet qualified. `android/tools/live_acoustic.py` adds a loudspeaker-driven check of the Live loop.
+
 - Android: selecting Live voice completes the hands-free loop: "Hey Hermes", ready cue, conversation, "Goodbye Hermes", and return to local listening. Idle calls end after 60 seconds without recognized speech when no request or observed Hermes task is unresolved, including work from an earlier call. Explicit hang-up leaves tasks running; Microphone off and failed calls never reconnect or change voice mode. Hermes voice remains the default.
 
 - Android Live task lifetime is qualified across hang-up, Microphone off, call failure and gadget reconnection. Accepted work retains its task slot and persistent history, and old results stay silent in fresh calls. Duplicate completion notifications no longer end a newer gadget turn. Added an opt-in physical lifecycle check; gateway-restart and missed-result recovery limits are documented.

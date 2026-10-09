@@ -11,9 +11,12 @@ Physical reports record [wake listening](#oneplus-8t-wake-listening-report),
 [Hermes voice requests](#oneplus-8t-hermes-voice-checks),
 [Live calls](#oneplus-8t-live-call-checks) and their
 [echo and interruption](#oneplus-8t-echo-and-interruption-checks), and
-[Live task handoffs](#oneplus-8t-live-task-handoffs) and
-[task/call lifetime](#oneplus-8t-task-and-call-lifetime-checks) on a OnePlus 8T.
-They do not cover the rest of the physical checklist.
+[Live task handoffs](#oneplus-8t-live-task-handoffs),
+[task/call lifetime](#oneplus-8t-task-and-call-lifetime-checks), the
+[hands-free Live loop](#oneplus-8t-hands-free-live-loop) and the
+[deployment over LAN and Tailscale](#oneplus-8t-deployment-over-lan-and-tailscale)
+on a OnePlus 8T. They do not cover the rest of the physical checklist, and
+human speech at 1–3 m in a Live call is not yet qualified.
 
 Firmware builds and simulator tests check software behavior. A physical verification report records what worked on a particular board revision, wiring, and firmware commit. A passing build alone does not establish that a microphone, power circuit, or display works on a device.
 
@@ -264,6 +267,57 @@ The final candidate then passed `devenv shell -- python android/tools/live_task_
 One fresh call also needed **12.254 s** to become ready. These two slow starts exceed the 5 s target; the passing lifecycle assertions do not qualify service readiness or native audible busy feedback. The scripted media failure does not establish behavior during an external network outage. This successful rerun supersedes the earlier incomplete lifecycle qualification without erasing that service failure.
 
 The phone remains experimental. Spoken-command reliability, repeated human wake/goodbye cycles at a measured distance, screen-off full Live cycles, Tailscale, reboot behavior and the full deployment qualification belong to issue #9. Existing kiosk/device-owner configuration was preserved, not requalified by a reboot. Missed turn completion while disconnected conservatively leaves automatic idle hang-up paused; explicit End call remains available, and no task is replayed. The service's transcript and usage-limit behavior remain external limits.
+
+## OnePlus 8T deployment over LAN and Tailscale
+
+Tested on 2026-10-09 for fork issue #9, without a person at the phone. Phone: OnePlus 8T KB2005, /e/OS 3.1.1 (Android 14), device owner in kiosk mode, Live voice selected, Microphone on, media volume 30/30 and voice-call volume 9/9, lying where the owner keeps it. Wireless ADB was `10.0.10.156:39859`. Host: zaza with Hermes v0.21.6 (`818c13be`), codex-cli 0.160.0 on the existing ChatGPT Plus login, Live Voice `3514df5`, and the gadget plugin from this branch's `plugin/` (the runtime copy in `~/.hermes/plugins/gadget` was byte-identical). Nothing in Nix, the pairing records or the credentials changed. Tailscale was 1.102.5 on zaza and 1.102.4 on the phone, whose node `oneplus-8t` was already logged in.
+
+The installed APK at the start was the #8 build (`d77c6c3c…`). The fix below produced `c1efc3fd…`, installed with `adb install -r` and the original debug key. Across the updates, the network switches and the reboot, the gadget identity and settings were unchanged, Android kept the app as device owner, and the phone stayed paired without approval. The hash of `device.properties` (without its timestamp line) was the same before and after the Tailscale run.
+
+The measurements come from two harnesses, kept apart from human speech:
+
+- `android/tools/live_acoustic.py` (`LiveAcousticDeviceTest`) plays a synthetic "Hey Hermes" (the `hey_hermes_ljspeech` fixture) and a Piper hold-to-talk request through the phone's own loudspeaker. The production core, wake detector, WebRTC and Hermes do the rest. Nobody speaks during these calls.
+- `android/tools/live_task_lifecycle.py` scripts delegations at the media interface, as in the [task lifetime checks](#oneplus-8t-task-and-call-lifetime-checks), with real WebRTC and real Hermes terminal tasks.
+
+**Fault found and fixed: no Live call over Tailscale.** With the phone's Tailscale VPN up, signaling worked: the gadget connected over the tailnet and got an SDP answer in about 1.06 s. But WebRTC's connection to the voice service failed after 15 s on every attempt, 0 of 2. Android reported the Tailscale VPN as `bypassable=false`. WebRTC's network monitor binds each socket to the Wi-Fi network, which Android refuses under a VPN the app can't bypass, so no candidate could reach the voice service. The phone now creates WebRTC without its network monitor. Unbound sockets route like the app's other traffic: tailnet addresses through the VPN, the voice service through Wi-Fi. Afterwards, all Tailscale and LAN calls below connected. A host test can't reproduce Android's per-network socket policy, so the evidence for the fix is this before/after run on the phone.
+
+| Check | LAN `ws://10.0.10.3:8765/gadget` | Tailscale `ws://zaza.taila757c4.ts.net:8765/gadget` |
+|---|---|---|
+| Gadget connection | Direct from `10.0.10.156` | From the phone's tailnet address `100.110.10.126` to `100.120.202.71`, through MagicDNS; existing pairing, no approval |
+| Loudspeaker wake → ready cue (detection to ready) | Before the fix: 1,583, 3,021, 1,950, 1,922 ms (screen on) and 1,675, 1,648 ms (screen off). Fixed APK: 1,702, 1,409 ms | Fixed APK: 1,734, 1,720 ms. Before the fix: 0 of 2 connected |
+| User transcripts with nobody speaking, ready cue included | 0 in 8 calls | 0 in 2 calls |
+| Idle expiry | 60.043, 60.063, 60.027 (screen off) and 60.014 s after readiness | 60.038 s |
+| Re-arm after hang-up | 526–729 ms (End call timing includes media teardown) | 527–689 ms |
+| 20 s startup failure (gateway app-server stopped), from a wake | Failed at 20.02 s with "no answer within 20 seconds"; re-armed 527 ms later | Same, re-armed 528 ms later |
+| Hold-to-talk with Live voice selected | Reply 4.7 s after release; no wake, no call, re-armed. Stored request lost its first words ("Let us 2 plus 2 …"); answer correct | Reply 10.7 s after release; re-armed |
+| Task lifecycle (4 scenarios, real tasks) | #8 APK: passed, 147 s. Fixed APK: passed, 139 s. Ready 1.52–2.51 s, release 545–595 ms, stored completion silent after 28.7–36.4 s | Fixed APK: passed, 140 s. Ready 1.52–1.97 s, release 551–580 ms, stored completion silent after 29.3–34.1 s |
+
+With the screen off, Android's display log confirmed the display was off during both wakes and calls.
+
+**Microphone off.** During a call started over adb, Microphone off ended it 5.1 s later with "Microphone off", and the WebRTC recorder closed. The process was then killed (`run-as … kill -9`). Android restarted the service by itself, which came back with Microphone off and opened no recorder. The kiosk stayed locked. Microphone on restored wake listening, and Android's recording log showed the wake capture starting again. `am force-stop` did not stop the device-owner app; its process kept running.
+
+**Overlapping phone and desktop calls.** The desktop side was an aiortc client speaking Piper prompts through a second dashboard instance running the deployed backend's code and environment (`/api/plugins/talk-desktop/codexlive/*`, its own app-server). The phone side was the 8T over the LAN, controlled with `--es call start|end`. The Hermes Desktop app itself was not used.
+
+| Direction | Result |
+|---|---|
+| Phone starts and stops during a desktop story | Desktop ready in 1.55 s. The phone was ready in 1,841 ms while the desktop was speaking. The desktop story kept streaming through the phone's start and End call, with no error or stop event. |
+| Phone startup failure during a desktop call | With the gateway's app-server stopped, the phone failed at 20.07 s. Meanwhile the desktop understood "What is two plus two?" and answered "Two plus two is four." Its connection stayed up. |
+| Desktop interruption during a phone call | The phone was ready in 1,655 ms. The desktop asked for a story, then spoke "Stop. What colour is the sky?" 4 s into the reply. The user transcript arrived 1.32 s later, and the reply changed to "Blue." The phone call stayed active. |
+| Desktop stop and startup failure during a phone call | The desktop stop returned `stopped: true`. With the dashboard's app-server stopped, a new desktop call failed after 25 s with `LIVE_TIMEOUT`. The phone call never ended. |
+| Phone stops during a desktop call | A third desktop call was ready in 1.59 s while the phone call ran. After the phone's End call, it still answered "Two plus two is four." and stopped cleanly. |
+
+The phone's own interruption can't be exercised without a person (see the limits below). Phone interruption with the desktop call running was measured with a person in the [echo report](#oneplus-8t-echo-and-interruption-checks).
+
+**Reboot.** After `adb reboot`, the gadget reconnected online and paired within 31 s and stayed connected. No port answered on the phone afterwards (TCP 1024–65535), so Android had turned wireless debugging off. The face, wake listening and Live calls after the reboot were therefore not observed over adb. To reconnect adb, open the settings screen and choose **Open Android settings**.
+
+**Deployment notes measured here:**
+
+- `am instrument` kills the app when it finishes. Both companion tools now relaunch the home activity afterwards. Before that, the phone sat on Android's Recents screen, unpinned and offline, until something launched the app.
+- With the phone's Tailscale up, `ws://10.0.10.3:8765/gadget` worked but arrived from `10.0.10.4`: the tailnet's `pi` node advertises `10.0.10.0/24`, and the phone routed the LAN through it. Use the tailnet name when Tailscale is on, or turn off the phone's use of tailnet subnets.
+- Reconnecting after a network switch took about 1 s, between the gadget's offline and online events on the host. A call in progress ends when the gadget connection drops.
+- Speech played from the phone's own loudspeaker never reached the call. At media volume 18/30, none of four prompts produced a user transcript; the microphone peak after processing was −27 to −38 dBFS. The phone's echo canceller removes its own media playback, so loudspeaker prompts can test wake and hold-to-talk, but not in-call speech.
+
+**Not qualified (needs a person, or untested):** "Hey Hermes" from a person at 1–3 m with a count of attempts and failures, false wakes over time, full-duplex human speech, deliberate interruption of the phone, "Goodbye Hermes", self-echo while the voice speaks at the owner's volume, clipping of a first request, spoken delegations and busy feedback over Tailscale, screen-off calls with speech, the Hermes Desktop app as the desktop client, phone behavior after the reboot, an external network outage, and Tailscale off the home LAN, such as over mobile data. Before the testing above began, someone at the phone spoke in two calls and tapped End call; those calls were not measurements. The phone stays experimental.
 
 ## Record a physical test
 
