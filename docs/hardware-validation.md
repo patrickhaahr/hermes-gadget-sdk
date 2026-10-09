@@ -250,6 +250,8 @@ The following captures show the actual phone settings before and after enabling 
 |---|---|
 | ![Live voice unavailable](images/android-voice-mode-before.png) | ![Live voice selected](images/android-voice-mode-after.png) |
 
+On the final candidate, an explicit call at 17:54:26.959 was ready in **1.855 s**. With no recognized speech or pending turn, media teardown began at 17:55:28.822, **60.008 s after readiness**; the idle-ended status was published at 17:55:29.018 and listening resumed at 17:55:29.547, **529 ms after release**. This is an actual idle/media/rearm measurement, not proof of spoken-command recognition. Live voice remained selected after APK replacement.
+
 The phone remains experimental. Spoken-command reliability, repeated human wake/goodbye cycles at a measured distance, screen-off full Live cycles, Tailscale, reboot behavior and the full deployment qualification belong to issue #9. Existing kiosk/device-owner configuration was preserved, not requalified by a reboot. Missed turn completion while disconnected conservatively leaves automatic idle hang-up paused; explicit End call remains available, and no task is replayed. The service's transcript and usage-limit behavior remain external limits.
 
 ## Record a physical test
