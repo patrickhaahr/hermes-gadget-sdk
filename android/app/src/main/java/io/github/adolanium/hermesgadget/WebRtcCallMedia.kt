@@ -89,7 +89,14 @@ class WebRtcCallMedia(context: Context, private val events: CallMediaEvents) : C
             override fun onWebRtcAudioTrackError(message: String) = events.failed("speaker: $message")
         })
         .createAudioDeviceModule()
-    private val factory = PeerConnectionFactory.builder().setAudioDeviceModule(adm).createPeerConnectionFactory()
+    // Without the network monitor, WebRTC doesn't bind its sockets to an Android
+    // network, so they route like the app's other sockets. Under a VPN that apps
+    // can't bypass, such as Tailscale reaching the host, binding to Wi-Fi is refused
+    // and the call's media never connects; unbound sockets still reach the voice
+    // service through Wi-Fi when the VPN has no route for it.
+    private val factory = PeerConnectionFactory.builder().setAudioDeviceModule(adm)
+        .setOptions(PeerConnectionFactory.Options().apply { disableNetworkMonitor = true })
+        .createPeerConnectionFactory()
     private val source = factory.createAudioSource(MediaConstraints().apply {
         for (key in listOf("googEchoCancellation", "googNoiseSuppression", "googAutoGainControl", "googHighpassFilter")) {
             mandatory.add(MediaConstraints.KeyValuePair(key, "true"))

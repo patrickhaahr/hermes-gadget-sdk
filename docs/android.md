@@ -46,7 +46,7 @@ adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup \
 
 The phone's shell splits the command again, so a name with spaces needs both sets of quotes. Add `--es token SECRET` if the host sets `GADGET_ACCESS_TOKEN`. You can also open the app and type the same values on its settings screen.
 
-The phone shows a pairing code. Approve it on the Hermes host with `hermes gadget pair`. Over Tailscale, use the host's tailnet name or address in the URL. For other networks, see [Connect from another network](tailscale-funnel.md).
+The phone shows a pairing code. Approve it on the Hermes host with `hermes gadget pair`. For other networks, see [Connect from another network](tailscale-funnel.md).
 
 To try the app without Hermes, run the development server on your computer and forward its port over the USB cable:
 
@@ -55,6 +55,16 @@ hermes-gadget devserver --pairing
 adb reverse tcp:8765 tcp:8765
 adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es server ws://127.0.0.1:8765/gadget
 ```
+
+### Over Tailscale
+
+Install Tailscale on the phone and sign in to the same tailnet as the host. Then send the host's tailnet name as the server, for example `--es server ws://myhost.example.ts.net:8765/gadget --es name "'Robot head'"`. The pairing is the device key, so changing the URL keeps it. Send the current name too: a server change without `--es name` resets the name to the default. The host must accept the gadget port on its Tailscale interface. On a dedicated phone, Tailscale's own screen is out of reach in kiosk mode. Sign in to Tailscale and allow its VPN before setting up kiosk mode, or choose **Leave kiosk mode for now** on the settings screen. After that, its automation broadcasts turn it on and off over adb:
+
+```bash
+adb shell am broadcast -a com.tailscale.ipn.CONNECT_VPN -n com.tailscale.ipn/.IPNReceiver   # or DISCONNECT_VPN
+```
+
+Live calls work over Tailscale: the gadget connection goes through the tailnet, and the call's audio goes from the phone to the voice service over the phone's own internet connection. While Tailscale is on, Android sends the phone's traffic to any subnet the tailnet advertises through that subnet's router. If a tailnet node advertises your home LAN, a LAN address in the URL still works but passes through that node; use the tailnet name, or turn off the phone's use of Tailscale subnets. The gadget reconnects about a second after the network changes. A call that is running ends when the gadget connection drops.
 
 ## Use it
 
@@ -144,7 +154,7 @@ To call:
 2. Wait for the ready cue, two rising tones, then speak. The button shows **Connecting…** until then; tap it to give up.
 3. Say **"Goodbye Hermes"** on its own, or tap **End call** (`--es call end`). Spoken hang-up waits about 3.5 seconds for the user utterance to settle. The gadget stays connected, and wake listening resumes half a second after media and the ready cue have stopped.
 
-The call takes the microphone and speaker from wake listening and the gadget. Wake listening stops and throws away what it heard, so nothing from before **Start call** is sent. Hold-to-talk records nothing during a call, and the gadget's spoken replies are silenced. The call's audio goes directly between the phone and the voice service over WebRTC, without passing through Hermes. The gateway only exchanges the connection details, over the gadget connection, so a phone that reaches the host over the LAN or Tailscale can call either way. The phone itself also needs internet access, because the call's audio goes to OpenAI. The phone uses Android's voice-communication microphone and plays the call on the loudspeaker. Where the phone has its own echo canceller and noise suppressor, the call uses them and WebRTC turns off its software ones; WebRTC's gain control and high-pass filter stay on. The ready cue plays outside WebRTC, so only the phone's own echo canceller keeps it out of the call. How well the loudspeaker is cancelled on a given phone is a measurement, not a setting. On the 8T, its own speech and the ready cue didn't reach the voice service, and speaking over the voice interrupted it; see the [echo report](hardware-validation.md#oneplus-8t-echo-and-interruption-checks).
+The call takes the microphone and speaker from wake listening and the gadget. Wake listening stops and throws away what it heard, so nothing from before **Start call** is sent. Hold-to-talk records nothing during a call, and the gadget's spoken replies are silenced. The call's audio goes directly between the phone and the voice service over WebRTC, without passing through Hermes. The gateway only exchanges the connection details, over the gadget connection, so a phone that reaches the host over the LAN or [Tailscale](#over-tailscale) can call either way ([8T report](hardware-validation.md#oneplus-8t-deployment-over-lan-and-tailscale)). The phone itself also needs internet access, because the call's audio goes to OpenAI. The phone uses Android's voice-communication microphone and plays the call on the loudspeaker. Where the phone has its own echo canceller and noise suppressor, the call uses them and WebRTC turns off its software ones; WebRTC's gain control and high-pass filter stay on. The ready cue plays outside WebRTC, so only the phone's own echo canceller keeps it out of the call. How well the loudspeaker is cancelled on a given phone is a measurement, not a setting. On the 8T, its own speech and the ready cue didn't reach the voice service, and speaking over the voice interrupted it; see the [echo report](hardware-validation.md#oneplus-8t-echo-and-interruption-checks).
 
 To interrupt the voice, talk over it. The voice service decides when you are interrupting and stops; on the 8T that took 0.7–2.8 seconds. Words spoken over the voice are sometimes lost, so if it asks what you said, say it again. The phone has no interrupt control of its own.
 
@@ -156,7 +166,7 @@ During a call, ask for a task: for example, "Ask Hermes to check the current hos
 
 One Hermes task can run at a time. Another request gets spoken wait feedback; it isn't queued or substituted for the first. Ask again after the result. The result is spoken once through the call, with gadget text-to-speech suppressed for that task. Long results are shortened for the voice; the complete conversation remains in Hermes.
 
-Hanging up or turning the microphone off leaves accepted Hermes work running. Its result stays in the gadget conversation and can appear silently on the screen, but it is never spoken after hang-up or passed to a later call. A lost connection never automatically resubmits a task whose acceptance is unknown. Starting a new call preserves gadget task history and starts fresh spoken context. Update both the gadget plugin and the Live Voice fork for phone task support and its conversation policy; an older gadget host is reported as unable to run voice tasks. A wake doesn't start a call yet.
+Hanging up or turning the microphone off leaves accepted Hermes work running. Its result stays in the gadget conversation and can appear silently on the screen, but it is never spoken after hang-up or passed to a later call. A lost connection never automatically resubmits a task whose acceptance is unknown. Starting a new call preserves gadget task history and starts fresh spoken context. Update both the gadget plugin and the Live Voice fork for phone task support and its conversation policy; an older gadget host is reported as unable to run voice tasks.
 
 **End call and stopping a task are separate actions.** End call, Microphone off, a dropped call and gadget reconnection release the voice connection; they never send Hermes `/stop` or start a new gadget conversation. The existing gadget CANCEL gesture or console `cancel` still explicitly stops Hermes work. Holding CANCEL to start a new session still resets its history. Use those controls only when you intend to stop or reset the task.
 
@@ -241,3 +251,19 @@ adb logcat -d -s HermesLifecycleTest HermesCall
 ```
 
 Run this on the paired Hermes host, with the debug and test APKs installed as above. This opt-in check spends subscription allowance and asks Hermes to run four read-only terminal tasks, each sleeping for 20 seconds before reporting a unique marker and hostname. It uses real WebRTC and the production Android controller/transport, with scripted delegation events at the media interface. It checks hang-up, Microphone off, gadget reconnection and a scripted media failure, audio release, busy admission in fresh calls and absence of old result injection or gadget playback. The host companion opens `state.db` read-only and signals completion through a temporary Android debug property only after finding the real terminal result and final answer. Set `HERMES_HOME` for a different Hermes profile. The check restores the ordinary service core and microphone preference afterwards and clears the debug property. This is separate from a person speaking and hearing native voice feedback.
+
+To check the Live loop acoustically on the same paired host, with Live voice selected:
+
+```bash
+devenv shell -- uv run --no-project --with piper-tts==1.8.0 --with scipy==1.18.1 --with numpy==2.5.3 \
+    python android/tools/live_acoustic.py --cycles 4            # add --screen-off, or --scenario failure|hold_to_talk
+adb logcat -d -s HermesAcousticTest HermesCall
+```
+
+The phone plays a synthetic "Hey Hermes" through its own loudspeaker. Each cycle measures detection, the time to the ready cue, user transcripts while nobody speaks (the ready cue's echo), End call or the 60-second idle expiry, and re-arming. `hold_to_talk` plays a request while holding the screen and waits for Hermes's reply. For `failure`, first stop the gateway's app-server with `kill -STOP <pid>` (the `codex app-server` child of the `hermes-agent` process); the scenario expects the 20-second startup failure, and `kill -CONT` resumes it. The phone's echo canceller removes its own playback from a call, so this can't speak to the voice like a person. It spends subscription allowance.
+
+`am instrument` kills the app when the test finishes. Both companion scripts then reopen the home screen to bring back the gadget and kiosk mode. After running a test by hand, do the same:
+
+```bash
+adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.HOME
+```
