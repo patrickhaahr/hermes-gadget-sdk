@@ -22,12 +22,10 @@ interface CallMedia {
 interface CallMediaEvents {
     fun offer(sdp: String)
 
-    /** The voice service started the session (its `session.started` event): the call is usable. */
-    fun ready()
-
     fun failed(reason: String)
 
-    fun delegation(id: String, text: String)
+    /** A text event from the voice service's data channel. Content is never logged. */
+    fun message(text: String)
 }
 
 fun interface CallMediaFactory {
@@ -63,7 +61,7 @@ data class CallStatus(
 )
 
 /**
- * Starts and ends the phone's subscription Live call (fork issue #4), on the core thread.
+ * Owns the phone's subscription Live call and hands-free lifecycle, on the core thread.
  *
  * - Start call takes the microphone and speaker from the [AudioCoordinator]: wake
  *   listening stops and discards what it heard, and the core can't record or play
@@ -93,11 +91,17 @@ class LiveCall(
         var announced = false // call.start went out, so the server has something to stop
         var state = CallState.STARTING
         val tasks = mutableMapOf<String, Task>()
+        var lastSpeechAt = startedAt
+        var lastUserAt = startedAt
+        var userText = ""
+        var userHasDeltas = false
+        var userOverflow = false
     }
 
     private class Task(var turn: String? = null, var answered: Boolean = false)
 
     private var current: Attempt? = null
+    private val processingTurns = mutableSetOf<String>() // Hermes work survives voice teardown
     private var counter = 0
     private var linkUp = false
     private var paired = false
@@ -147,11 +151,25 @@ class LiveCall(
         audio.setMicrophoneEnabled(enabled)
     }
 
-    /** Called every core tick; fails a call that isn't ready in time. */
+    /** Startup expiry, spoken hang-up and idle expiry run on the core thread. */
     fun tick() {
         val attempt = current ?: return
-        if (attempt.state == CallState.STARTING && clock() - attempt.startedAt >= START_TIMEOUT_MS) {
+        val now = clock()
+        if (attempt.state == CallState.STARTING && now - attempt.startedAt >= START_TIMEOUT_MS) {
             fail(attempt, "no answer within ${START_TIMEOUT_MS / 1000} seconds")
+        } else if (attempt.state == CallState.ACTIVE) {
+            if (attempt.userText.isNotEmpty() && now - attempt.lastUserAt >= UTTERANCE_GAP_MS) {
+                val goodbye = !attempt.userOverflow && GOODBYE.matches(attempt.userText)
+                clearUser(attempt)
+                if (goodbye) {
+                    log("call ${attempt.id}: spoken hang-up")
+                    hangUp(attempt, "Call ended")
+                    return
+                }
+            }
+            if (processingTurns.isEmpty() && attempt.tasks.values.none { !it.answered } && now - attempt.lastSpeechAt >= IDLE_TIMEOUT_MS) {
+                hangUp(attempt, "Call ended after 60 seconds without speech")
+            }
         }
     }
 
@@ -220,6 +238,10 @@ class LiveCall(
                 })
                 return false
             }
+            "turn.start" -> msg.optString("turn").takeIf { it.isNotEmpty() }?.let(processingTurns::add)
+            "turn.end" -> {
+                if (processingTurns.remove(msg.optString("turn"))) current?.lastSpeechAt = clock()
+            }
             "call.task.status" -> {
                 taskStatus(msg)
                 return false
@@ -239,9 +261,56 @@ class LiveCall(
 
     private fun events(attempt: Attempt) = object : CallMediaEvents {
         override fun offer(sdp: String) = post { if (current === attempt) sendOffer(attempt, sdp) }
-        override fun ready() = post { if (current === attempt) ready(attempt) }
         override fun failed(reason: String) = post { if (current === attempt) fail(attempt, reason) }
-        override fun delegation(id: String, text: String) = post { if (current === attempt) delegate(attempt, id, text) }
+        override fun message(text: String) = post { if (current === attempt) message(attempt, text) }
+    }
+
+    private fun message(attempt: Attempt, text: String) {
+        val event = try { JSONObject(text) } catch (e: JSONException) { return }
+        when (event.optString("type")) {
+            "session.started" -> ready(attempt)
+            "input_transcript.added", "output_transcript.added" -> {
+                transcript(attempt, event.optString("type") == "input_transcript.added", event.optJSONObject("item")?.optString("text") ?: "", delta = true)
+            }
+            "turn.done" -> event.optJSONObject("turn")?.let { turn ->
+                val role = turn.optString("role")
+                val text = turn.optString("transcript")
+                log("$role turn done (${text.length} characters)")
+                if (role == "user" || role == "assistant") transcript(attempt, role == "user", text, delta = false)
+            }
+            "error" -> log("voice service reported an error")
+            "delegation.created" -> event.optJSONObject("item")?.let { item ->
+                val content = item.optJSONArray("content") ?: JSONArray()
+                val request = (0 until content.length()).joinToString("") { content.optJSONObject(it)?.optString("text") ?: "" }.trim()
+                delegate(attempt, item.optString("id"), request)
+            }
+        }
+    }
+
+    private fun clearUser(attempt: Attempt) {
+        attempt.userText = ""
+        attempt.userHasDeltas = false
+        attempt.userOverflow = false
+    }
+
+    private fun transcript(attempt: Attempt, user: Boolean, text: String, delta: Boolean) {
+        if (attempt.state != CallState.ACTIVE || text.isEmpty()) return
+        val now = clock()
+        if (text.isNotBlank()) attempt.lastSpeechAt = now
+        if (!user) return // model output can keep a call alive, but never hang it up
+        if (now - attempt.lastUserAt >= UTTERANCE_GAP_MS) clearUser(attempt)
+        attempt.lastUserAt = now
+        // v3 rotates turns and turn.done can be partial or absent. Deltas own the
+        // utterance when present; bookkeeping must not replace or duplicate them.
+        if (delta) {
+            if (!attempt.userHasDeltas) clearUser(attempt)
+            attempt.userHasDeltas = true
+            attempt.userOverflow = attempt.userOverflow || attempt.userText.length + text.length > MAX_USER_TEXT
+            attempt.userText = (attempt.userText + text).take(MAX_USER_TEXT)
+        } else if (!attempt.userHasDeltas && text.length > attempt.userText.length) {
+            attempt.userOverflow = text.length > MAX_USER_TEXT
+            attempt.userText = text.take(MAX_USER_TEXT)
+        }
     }
 
     private fun delegate(attempt: Attempt, id: String, text: String) {
@@ -250,6 +319,7 @@ class LiveCall(
             hangUp(attempt, "This call has reached its task request limit")
             return
         }
+        attempt.lastSpeechAt = clock()
         val task = Task()
         attempt.tasks[id] = task // duplicate service events must never submit again
         if (!hostOffersTasks) {
@@ -281,10 +351,13 @@ class LiveCall(
         if (state == "accepted") {
             if (turn.isEmpty() || (task.turn != null && task.turn != turn)) return
             task.turn = turn
+            processingTurns.add(turn)
             feedback = "Hermes is working; you can keep talking"
         } else if (state in listOf("completed", "busy", "failed", "not_connected")) {
             if (task.turn != null && task.turn != turn) return
             task.answered = true // a duplicate receipt must never speak the result twice
+            if (task.turn != null) processingTurns.remove(turn)
+            attempt.lastSpeechAt = clock() // give the voice a full idle window to read the result
             val text = msg.optString("text").ifBlank { "The Hermes task could not be completed." }
             val response = if (state == "completed") "Hermes task result. Answer the user briefly with this:\n$text" else text
             val spoken = attempt.media?.respond(id, response) == true
@@ -319,6 +392,8 @@ class LiveCall(
     private fun ready(attempt: Attempt) {
         if (attempt.state != CallState.STARTING) return
         attempt.state = CallState.ACTIVE
+        attempt.lastSpeechAt = clock()
+        attempt.lastUserAt = clock()
         readyMs = clock() - attempt.startedAt
         log("call ${attempt.id}: ready after $readyMs ms")
         cue.play()
@@ -341,7 +416,7 @@ class LiveCall(
         attempt.media?.close()
         attempt.media = null
         cue.stop()
-        audio.release()
+        audio.release(clock())
         feedback = reason
         log("call ${attempt.id}: ended ($reason)")
         publish()
@@ -359,5 +434,10 @@ class LiveCall(
         const val KIND = "live"
         const val LANGUAGE = "en"
         const val START_TIMEOUT_MS = 20_000L
+        const val IDLE_TIMEOUT_MS = 60_000L
+        // A whole user utterance, including any continuation, must settle first.
+        private const val UTTERANCE_GAP_MS = 3500L
+        private const val MAX_USER_TEXT = 256
+        private val GOODBYE = Regex("""(?i)\s*goodbye[\s,]+hermes[.!?,…]*\s*""")
     }
 }

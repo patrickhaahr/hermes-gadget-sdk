@@ -49,7 +49,8 @@ class GadgetCore(
         onStatus = ::audioChanged,
         startRequest = { if (handle != 0L) NativeCore.startWakeRequest(handle).decodeToString() else "The gadget is not running" },
         discardRequest = { if (handle != 0L) NativeCore.discardWakeRequest(handle) },
-        voiceMode = voiceMode)
+        voiceMode = voiceMode,
+        startLiveCall = { call.start(); call.status.feedback ?: "Starting Live call" })
     private val call: LiveCall = LiveCall(audio, callMedia, cue, transport::sendText, ::post, ::nowMs,
         onStatus = { status ->
             callStatus = status

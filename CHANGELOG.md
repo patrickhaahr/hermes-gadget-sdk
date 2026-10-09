@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Android: selecting Live voice completes the hands-free loop: "Hey Hermes", ready cue, conversation, "Goodbye Hermes", and return to local listening. Idle calls end after 60 seconds without recognized speech when no request or observed Hermes task is unresolved, including work from an earlier call. Explicit hang-up leaves tasks running; Microphone off and failed calls never reconnect or change voice mode. Hermes voice remains the default.
+
 - Android Live task lifetime is qualified across hang-up, Microphone off, call failure and gadget reconnection. Accepted work retains its task slot and persistent history, and old results stay silent in fresh calls. Duplicate completion notifications no longer end a newer gadget turn. Added an opt-in physical lifecycle check; gateway-restart and missed-result recovery limits are documented.
 
 - Android Live calls can delegate one task at a time to the paired phone's existing Hermes conversation and profile. Busy requests get wait feedback, duplicate delegations reuse their receipt, and the result is spoken once through the originating call. On-screen approvals remain usable. Hanging up leaves accepted work running and its completion silent; casual conversation remains available with the updated Live Voice fork.

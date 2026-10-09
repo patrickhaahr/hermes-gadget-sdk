@@ -7,7 +7,6 @@ import android.media.AudioManager
 import android.media.MediaRecorder
 import android.os.Build
 import android.util.Log
-import org.json.JSONException
 import org.json.JSONObject
 import org.webrtc.DataChannel
 import org.webrtc.IceCandidate
@@ -100,7 +99,7 @@ class WebRtcCallMedia(context: Context, private val events: CallMediaEvents) : C
     private val peer: PeerConnection
     private val channel: DataChannel
     @Volatile private var closed = false
-    @Volatile private var ready = false
+    @Volatile private var eventsOpened = false
     private var stats: Timer? = null
 
     init {
@@ -179,7 +178,7 @@ class WebRtcCallMedia(context: Context, private val events: CallMediaEvents) : C
      * stats' own microphone level stays 0 with the phone's audio processing.)
      */
     private fun logStats(label: String) = synchronized(this) {
-        if (ready && !closed) {
+        if (eventsOpened && !closed) {
             val peak = micPeak
             micPeak = 0
             peer.getStats { report ->
@@ -234,34 +233,17 @@ class WebRtcCallMedia(context: Context, private val events: CallMediaEvents) : C
         override fun onStateChange() {
             val state = channel.state()
             Log.i(TAG, "events channel: $state")
-            if (state == DataChannel.State.CLOSED && ready && !closed) events.failed("the voice service closed the call")
+            if (state == DataChannel.State.OPEN && !eventsOpened && !closed) {
+                eventsOpened = true
+                stats = fixedRateTimer("call-stats", daemon = true, initialDelay = STATS_MS, period = STATS_MS) { logStats("call audio") }
+            }
+            if (state == DataChannel.State.CLOSED && eventsOpened && !closed) events.failed("the voice service closed the call")
         }
 
         override fun onMessage(buffer: DataChannel.Buffer) {
             if (buffer.binary) return
             val bytes = ByteArray(buffer.data.remaining()).also { buffer.data.get(it) }
-            val event = try {
-                JSONObject(String(bytes, StandardCharsets.UTF_8))
-            } catch (e: JSONException) {
-                return
-            }
-            when (event.optString("type")) {
-                "session.started" -> if (!ready) {
-                    ready = true
-                    stats = fixedRateTimer("call-stats", daemon = true, initialDelay = STATS_MS, period = STATS_MS) { logStats("call audio") }
-                    events.ready()
-                }
-                // Only the turn's role and length: what was said stays out of the log.
-                "turn.done" -> event.optJSONObject("turn")?.let { turn ->
-                    Log.i(TAG, "${turn.optString("role")} turn done (${turn.optString("transcript").length} characters)")
-                }
-                "error" -> Log.w(TAG, "voice service error: ${event.optJSONObject("error")?.optString("message") ?: event}")
-                "delegation.created" -> event.optJSONObject("item")?.let { item ->
-                    val content = item.optJSONArray("content") ?: org.json.JSONArray()
-                    val text = (0 until content.length()).joinToString("") { content.optJSONObject(it)?.optString("text") ?: "" }.trim()
-                    events.delegation(item.optString("id"), text)
-                }
-            }
+            events.message(String(bytes, StandardCharsets.UTF_8))
         }
     }
 

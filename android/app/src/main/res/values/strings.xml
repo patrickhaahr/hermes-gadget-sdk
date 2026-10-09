@@ -31,7 +31,7 @@
     <string name="action_microphone_on">Turn the microphone on</string>
     <string name="voice_mode">Voice mode</string>
     <string name="voice_mode_hermes">Hermes voice</string>
-    <string name="voice_mode_live_unavailable">Live voice — a wake can\'t start a call yet; use Start call on the face</string>
+    <string name="voice_mode_live">Live voice</string>
     <string name="call_start">Start call</string>
     <string name="call_connecting">Connecting… tap to cancel</string>
     <string name="call_end">End call</string>

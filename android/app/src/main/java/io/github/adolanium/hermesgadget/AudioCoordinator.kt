@@ -71,6 +71,7 @@ class AudioCoordinator(
     private val startRequest: () -> String = { "Wake requests unavailable" },
     private val discardRequest: () -> Unit = {},
     private val voiceMode: () -> VoiceMode = { VoiceMode.HERMES },
+    private val startLiveCall: () -> String = { "Live calls unavailable" },
 ) {
     private var closed = false
     private var micEnabled = setting.enabled
@@ -182,10 +183,10 @@ class AudioCoordinator(
         return true
     }
 
-    fun release() {
+    fun release(nowMs: Long) {
         if (!handedOff) return
         handedOff = false
-        wakeResumeAt = now + PLAYBACK_TAIL_MS
+        wakeResumeAt = nowMs + PLAYBACK_TAIL_MS
         update()
     }
 
@@ -253,11 +254,11 @@ class AudioCoordinator(
         if (gadgetCapture != null) return
         detections++
         lastScore = score
-        feedback = if (voiceMode() == VoiceMode.LIVE) "Live voice is not available yet" else {
+        feedback = if (voiceMode() == VoiceMode.LIVE) startLiveCall() else {
             startingWake = true
             try { startRequest().ifEmpty { "Listening for your request" } } finally { startingWake = false }
         }
-        // A successful request now owns the running reader; a refusal keeps wake listening local.
+        // Hermes voice transfers the reader; Live stops/discards it before opening WebRTC.
         update()
     }
 

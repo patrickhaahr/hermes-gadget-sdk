@@ -283,15 +283,14 @@ class AudioCoordinatorTest {
     }
 
     @Test
-    fun wakeRefusesDisconnectedUnpairedBusyAndLiveWithoutSending() {
-        val cases = listOf("disconnected", "unpaired", "busy", "live")
+    fun wakeRefusesDisconnectedUnpairedAndBusyWithoutSending() {
+        val cases = listOf("disconnected", "unpaired", "busy")
         for ((index, case) in cases.withIndex()) {
             NativeCore.transportClosed(handle, "test".toByteArray())
             if (case != "disconnected") online()
             when (case) {
                 "unpaired" -> NativeCore.transportText(handle, """{"type":"unpaired"}""".toByteArray())
                 "busy" -> NativeCore.submitText(handle, "test".toByteArray())
-                "live" -> mode = VoiceMode.LIVE
             }
             val before = host.sentText.toList()
             capture.hear(wakePhrase)
@@ -302,8 +301,7 @@ class AudioCoordinatorTest {
             val reason = when (case) {
                 "disconnected" -> "Not connected to Hermes"
                 "unpaired" -> "Approve pairing first"
-                "busy" -> "A turn is already running"
-                else -> "Live voice is not available yet"
+                else -> "A turn is already running"
             }
             assertEquals(reason, audio.status.feedback)
         }
@@ -443,7 +441,7 @@ class AudioCoordinatorTest {
         pump()
         assertFalse("the gadget can't speak over the new owner", playback.playing)
 
-        audio.release()
+        audio.release(clock)
         run(AudioCoordinator.PLAYBACK_TAIL_MS.toInt() + 20)
         assertEquals(AudioState.WAKE_LISTENING, audio.status.state)
 
