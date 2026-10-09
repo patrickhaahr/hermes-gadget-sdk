@@ -7,8 +7,9 @@ tests use software drivers or test doubles. No physical Pi report is recorded.
 The Android client is experimental. CI builds the app and runs the device core
 through its JNI bridge on the build machine, with test doubles for the drivers;
 its wake tests run the real wake models with the TensorFlow Lite C library.
-Physical reports record [wake listening](#oneplus-8t-wake-listening-report)
-and [Hermes voice requests](#oneplus-8t-hermes-voice-checks) on a OnePlus 8T.
+Physical reports record [wake listening](#oneplus-8t-wake-listening-report),
+[Hermes voice requests](#oneplus-8t-hermes-voice-checks) and
+[Live calls](#oneplus-8t-live-call-checks) on a OnePlus 8T.
 They do not cover the rest of the physical checklist.
 
 Firmware builds and simulator tests check software behavior. A physical verification report records what worked on a particular board revision, wiring, and firmware commit. A passing build alone does not establish that a microphone, power circuit, or display works on a device.
@@ -83,6 +84,37 @@ Commands and outcomes for this change (from the repository root, with a JDK, And
 The first PR Android CI run failed before tests: Gradle removed the host JNI output directory immediately after CMake configured it. `buildHostJni --info` reproduced this on a fresh checkout with no Gradle task history. Removing that task's output-directory declaration lets CMake own its incremental build state. The fresh-checkout Android command above then passed. A local model download returned HTTP 429; that retry reused the existing SHA-256-verified pinned artifacts. The owner subsequently confirmed that the installed wake-to-reply interaction works; no distance or accuracy counts were supplied.
 
 Human wake-plus-request trials at 1–3 m, room-noise accuracy, other speakers and accents, long-term false wakes, and speech latency distributions are not measured in this change. The acoustic source was the phone's own loudspeaker, not a person across the room. The phone stays experimental.
+
+## OnePlus 8T Live call checks
+
+Tested on 2026-10-09 for fork issue #4 (Start call / End call), with the same OnePlus 8T KB2005, /e/OS 3.1.1 (Android 14), device-owner kiosk setup and LAN pairing (`ws://10.0.10.3:8765/gadget`). The app is the `android/client` branch at `fbd202e` plus this change, a debug build installed in place with the original signing key (APK SHA-256 `43c2dc45832bac4d665eb2447a3f35f726d89e39e3d48cb8f68d74c5f81b50dd`). Device key, pairing and device owner were unchanged. WebRTC is `io.getstream:stream-webrtc-android` 1.3.10. The host is zaza: Hermes v0.21.6 (`818c13be`), codex-cli 0.160.0, Codex logged in on a ChatGPT Plus plan. The gateway ran this change's gadget plugin with `live_calls: true`, and the talk-desktop plugin at `30adcc3` plus the `start_call`/`stop_call` API. Calls were started and ended over adb (`--es call start|end`), and once by tapping the on-screen control with `adb shell input tap`. The phone's voice-call volume on the loudspeaker was 9 of 9.
+
+The face before this change, idle with Start call, and during a call:
+
+| Before | Idle | In a call |
+|---|---|---|
+| ![The face without a call control](images/android-face-before-call.png) | ![The face with Start call](images/android-face-start-call.png) | ![The face during a call: Live call chip and End call](images/android-face-in-call.png) |
+
+Measured on the phone and host, from `HermesCall` logcat, the gateway log and Android's audio state:
+
+| Check | Result |
+|---|---|
+| Start call to ready cue (phone clock) | 2,578, 1,793, 1,453, 1,384, 1,601 and 1,740 ms over six calls, all within the 5 s target. The broker's share (app-server, thread, SDP answer) was 0.87–1.99 s; the first call included starting the gateway's app-server. |
+| Audio path | The WebRTC recorder used `VOICE_COMMUNICATION` on the built-in microphone at 48 kHz, with the platform echo canceller and noise suppressor enabled. Android reported `verifyAudioConfig: PASS`. The remote track played; audio mode was `MODE_IN_COMMUNICATION` during the call and returned to `MODE_NORMAL` after it. |
+| Capture and playback | In a 30 s call, the phone sent 64 KB and received 100 KB of audio. The service reported user and assistant turns (only their lengths are logged). Nobody was asked to speak, so whether the user turns were room speech or the phone's own output wasn't established. That is the echo qualification in the next slice. |
+| On-screen control | Tapping **Start call** started a call (ready in 1,740 ms). The chip showed **Live call** and the button **End call**. Tapping it hung up, showed "Call ended" and brought back **Start call** with wake listening. |
+| End call | The connection closed, the broker stopped that call's thread, the gadget connection stayed up, and wake listening resumed 0.35 s later. |
+| Microphone off during a call | The call ended (`Microphone off`), the broker stopped its thread, and the microphone stayed off. A Start call while it was off reached no server. Turning it on resumed wake listening. |
+| 20 s startup failure | With the gateway's app-server frozen (`SIGSTOP`), the phone failed the attempt at 20.0 s with "Live call failed: no answer within 20 seconds", released the audio and resumed wake listening. After the app-server resumed, the next call was ready in 1,384 ms. |
+| Independent desktop call | During a phone call, an aiortc client started a call through the same Live Voice broker code in its own process and app-server, as the dashboard does. It was ready in 2.02 s. When it hung up, the phone call continued. A second desktop call (ready in 1.61 s) stayed connected and still answered after the phone hung up. |
+| Delegation | The voice model asked for a task once. The phone answered with the "tasks aren't available in phone calls yet" notice; the broker interrupted the backing Codex turn with 0 items. |
+
+Test doubles and source checks, kept separate from the measurements above:
+
+- **Plugin:** `tests/test_hub_calls.py` runs raw paired-device clients against the real hub with a scripted broker. It covers admission, revocation, one call per device, stale answers after hang-up or the deadline, failed starts, independence between devices, a host without calls, and an unmodified simulator device on a calling host. `tests/test_adapter_hermes.py` adds the real Hermes adapter: only an explicit current approval admits a call, the adapter's profile is used and the device's own field ignored, and revocation ends the call. With `HERMES_LIVE_VOICE_DIR` set, it also loads the Live Voice module as the gateway does and runs it against that repository's fake `codex app-server`.
+- **Android host:** `LiveCallTest` (12 tests) drives the production `LiveCall` and `AudioCoordinator` with the device core over JNI and the real wake models. A scripted `CallMedia` stands in for WebRTC. The tests cover the hand-off before the offer, the offer's fields, the cue only after `session.started`, hang-up keeping the gadget, the 20 s deadline with a late answer ignored, server refusal, drops, stale events, refusals, Microphone off, and losing the connection or the pairing.
+
+Not covered: a person speaking to the phone at 1–3 m, the audibility of the ready cue, echo or self-interruption on the loudspeaker, user barge-in, screen-off calls, Tailscale, other phones, and other subscription plans.
 
 ## Waveshare 1.85C V2 partial physical report
 

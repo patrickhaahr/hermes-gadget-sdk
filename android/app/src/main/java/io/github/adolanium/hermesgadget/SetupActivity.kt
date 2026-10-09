@@ -29,6 +29,10 @@ import android.widget.TextView
  * and to turn the microphone off or on (`adb logcat -s HermesWake` shows its state):
  *
  *     adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es microphone off
+ *
+ * and to start or end a Live call (`adb logcat -s HermesCall` shows its progress):
+ *
+ *     adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es call start
  */
 class SetupActivity : Activity() {
     private lateinit var server: EditText
@@ -41,8 +45,11 @@ class SetupActivity : Activity() {
         override fun run() {
             val core = GadgetRuntime.core
             val audio = GadgetRuntime.audioStatus(this@SetupActivity)
+            val call = GadgetRuntime.callStatus()
             val microphone = "microphone: ${audio.state}, wake detections: ${audio.detections}" +
-                (audio.problem?.let { " ($it)" } ?: "")
+                (audio.problem?.let { " ($it)" } ?: "") +
+                "\nlive call: ${call.state}" + (call.unavailable?.let { " ($it)" } ?: "") +
+                (call.readyMs?.let { ", last ready after $it ms" } ?: "") + (call.feedback?.let { "; $it" } ?: "")
             showMicrophoneChoice()
             if (core == null) status.text = (GadgetRuntime.stopReason ?: getString(R.string.status_stopped)) + "\n" + microphone
             else core.status { json -> status.post { status.text = json + "\n" + microphone } }
@@ -62,6 +69,17 @@ class SetupActivity : Activity() {
         intent.getStringExtra("voice_mode")?.let { value ->
             val mode = VoiceMode.entries.find { it.value == value }
             if (mode == null || !GadgetRuntime.setVoiceMode(this, mode)) Log.w(TAG, "voice_mode: use hermes; Live voice is not available yet")
+            finish()
+            return
+        }
+        intent.getStringExtra(EXTRA_CALL)?.let { value ->
+            val core = GadgetRuntime.core
+            when {
+                core == null -> Log.w(TAG, "call: the gadget is not running")
+                value == "start" -> core.startCall()
+                value == "end" -> core.endCall()
+                else -> Log.w(TAG, "call: expected start or end, not $value")
+            }
             finish()
             return
         }
@@ -203,6 +221,7 @@ class SetupActivity : Activity() {
     private companion object {
         const val EXTRA_CONSOLE = "console"
         const val EXTRA_MICROPHONE = "microphone"
+        const val EXTRA_CALL = "call"
         const val TAG = "HermesGadget"
     }
 }

@@ -29,10 +29,17 @@ _Avoid_: Voice call
 Use of a phone as a continuously available Hermes device in kiosk mode. The initial test device is the OnePlus 8T; ordinary app use is a later target.
 
 **Voice mode**:
-The saved choice of what wake detection activates: Hermes voice or Live voice. Hermes voice is the default; Live voice is unavailable until its call integration lands.
+The saved choice of what wake detection activates: Hermes voice or Live voice. Hermes voice is the default; Live voice stays unselectable until a wake can start a Live call.
 
 **Hermes voice**:
 One wake request through Hermes's existing speech recognition, gadget conversation and text-to-speech. It uses whichever STT/TTS the host has configured and does not open a Live voice call.
 
 **Wake request**:
 A single locally buffered recording starting with the detection chunk, ending after speech and a pause or the maximum length. Earlier audio never leaves the phone. Silence and cancelled recordings are discarded without upload. Another request requires another wake.
+
+**Live call**:
+A voice call with the GPT-Live model on the Hermes host's ChatGPT/Codex subscription, started with Start call. The phone and the voice service exchange audio directly over WebRTC; the paired gadget connection carries only the call's signaling.
+_Avoid_: Live voice (that is the Voice mode value), gadget turn
+
+**Start call**:
+The explicit control that starts a Live call. It takes the microphone and speaker from wake listening and the gadget, so nothing heard before it is sent. A wake will trigger the same start once Live voice is selectable.

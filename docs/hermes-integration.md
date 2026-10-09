@@ -37,7 +37,11 @@ platforms:
       # max_utterance_s: 60
       # tls_cert: /path/cert.pem   # serve wss://
       # tls_key: /path/key.pem
+      # live_calls: false          # paired phones may start subscription Live calls
+      # live_voice_plugin: ~/.hermes/plugins/talk-desktop
 ```
+
+`live_calls` lets paired Android phones start voice calls on the host's ChatGPT/Codex subscription ([Live calls](android.md#live-calls)). The gateway loads the call broker from the [Hermes Live Voice](https://github.com/Synero/hermes-live-voice) plugin's directory and runs its own copy, with its own `codex app-server`. The dashboard's routes and login aren't involved ([ADR 0006](adr/0006-run-phone-call-broker-in-the-gateway.md)). The gateway's user must be signed in to Codex.
 
 Secrets go in `~/.hermes/.env`, following Hermes's rule that `.env` is only for secrets:
 

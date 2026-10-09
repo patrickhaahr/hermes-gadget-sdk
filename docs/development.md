@@ -24,11 +24,14 @@ assets/mascot/          The mascot master image and its attribution
 | Core (C++) | `hermes-gadget build-sim --test`, or `ctest --test-dir build/host -C Release` | CMake + compiler |
 | Plugin units, simulator ↔ hub, desktop controls | `pytest` | Built simulator library; a desktop or Xvfb for window tests |
 | Adapter on real Hermes classes | `HERMES_AGENT_DIR=../hermes-agent ../hermes-agent/.venv/bin/python -m pytest tests/test_adapter_hermes.py` | A Hermes checkout and its virtualenv |
+| Live calls through the real Live Voice broker | Add `HERMES_LIVE_VOICE_DIR=../hermes-live-voice` to the adapter command | A Hermes Live Voice checkout with `start_call` ([patrickhaahr/hermes-live-voice](https://github.com/patrickhaahr/hermes-live-voice)); runs its fake `codex app-server`, no subscription |
 | Full gateway end to end | `HERMES_GADGET_E2E=1 pytest tests/test_gateway_e2e.py` | The above; spawns `hermes gateway run` with a temporary `HERMES_HOME` |
 | Browser installer | `npm ci && npm test` in `site/` | Node.js 22 |
 | Android client | `./gradlew assembleDebug testDebugUnitTest` in `android/` | JDK 17, the Android SDK and NDK ([versions](android.md#build-from-source)), CMake + compiler for the host JNI tests, network access for the pinned wake models (the wake tests need Linux x86-64) |
 | Android wake pipeline on a phone | `adb shell am instrument …` ([steps](android.md#build-from-source)) | A phone with the debug and test APKs installed with `adb install -r` |
 | Home Assistant / MQTT examples | `pytest tests/test_automation_examples.py` | Built native library and the `mqtt` extra; local peers need no external accounts |
+
+To run the adapter suite against a packaged Hermes (for example a Nix build) instead of a checkout, make a virtualenv with `--system-site-packages` from Hermes's own Python, install `pytest`, and point `HERMES_AGENT_DIR` at that Python's `site-packages`. Also set `HERMES_BUNDLED_LOCALES` to the package's `share/hermes-agent/locales`; without it, the transcript-echo and confirmation tests fail on missing translations.
 
 The Python jobs in `.github/workflows/ci.yml` run under `xvfb-run` so the desktop controls run against the simulator core and development hub. On a headless Linux machine, use `xvfb-run -a pytest`. Without a display, the window tests skip; set `HERMES_GADGET_UI_TESTS=1` to require them.
 

@@ -9,6 +9,7 @@ Run with a Python that can import Hermes, e.g.:
 from __future__ import annotations
 
 import json
+import os
 import math
 import struct
 import types
@@ -519,3 +520,162 @@ def test_staged_firmware_the_device_refuses_is_dropped(gadget, make_sim, monkeyp
     status = queue.status(device_id)
     assert status["code"] == "wrong_board" and "built for esp32s3-breadboard" in status["error"]
     assert queue.pending() == [] and sim.update_image is None
+
+
+# -- live calls ------------------------------------------------------------------------
+
+
+@pytest.fixture
+def calling_gadget(loop_thread, tmp_path, monkeypatch):
+    """The adapter with live_calls on; ``make(broker)`` uses a scripted broker, ``make(None)`` the real plugin."""
+    import plugins.plugin_storage as storage
+    from gateway.config import PlatformConfig
+    from hermes_gadget_plugin import calls
+    from hermes_gadget_plugin.adapter import GadgetAdapter
+
+    monkeypatch.setattr(storage, "plugin_data_dir", lambda name: tmp_path / "plugin-data" / name)
+    import gateway.config as gateway_config
+
+    monkeypatch.setattr(gateway_config, "persist_home_channel", lambda home, **kw: None)
+    made = []
+
+    def make(broker=None, plugin_dir=None, profile=None):
+        if broker is not None:
+            monkeypatch.setattr(calls, "load_live_voice", lambda path: broker)
+        extra = {"host": "127.0.0.1", "port": 0, "live_calls": True}
+        if plugin_dir:
+            extra["live_voice_plugin"] = str(plugin_dir)
+        adapter = GadgetAdapter(PlatformConfig(enabled=True, extra=extra))
+        adapter.set_owner_profile(profile)
+        state = types.SimpleNamespace(adapter=adapter, authorized=set())
+        adapter.set_authorization_check(
+            lambda user_id, chat_type=None, chat_id=None, **kw: user_id in state.authorized)
+
+        async def handler(event):
+            return None
+
+        adapter.set_message_handler(handler)
+        assert loop_thread.run(adapter.connect())
+        made.append(adapter)
+        state.url = f"ws://127.0.0.1:{adapter.hub.bound_port}/gadget"
+        return state
+
+    yield make
+    for adapter in made:
+        loop_thread.run(adapter.cancel_background_tasks())
+        loop_thread.run(adapter.disconnect())
+
+
+def test_live_calls_are_off_unless_configured(gadget):
+    from test_hub_calls import Device
+
+    phone = Device(gadget.url)
+    try:
+        assert "calls" not in phone.welcome
+        gadget.authorized.add(phone.device_id)
+        phone.send("call.start", id="c1", offer="offer-phone")
+        assert phone.expect("call.error", id="c1")["code"] == "unsupported"
+    finally:
+        phone.close()
+
+
+def test_a_live_call_needs_a_current_approval_and_runs_in_the_adapters_profile(calling_gadget):
+    from test_hub_calls import Device, ScriptedBroker
+
+    broker = ScriptedBroker()
+    gadget = calling_gadget(broker, profile="robot")
+    phone = Device(gadget.url)
+    try:
+        assert phone.welcome["calls"] == ["live"]
+        phone.send("call.start", id="c1", offer="offer-enrolled-only")
+        assert phone.expect("call.error", id="c1")["code"] == "not_paired"
+        assert broker.started == []
+
+        gadget.authorized.add(phone.device_id)
+        phone.expect("paired", timeout=6)
+        phone.send("call.start", id="c2", offer="offer-phone", profile="default", language="xx")
+        phone.expect("call.answer", id="c2")
+        [started] = broker.started
+        assert started["profile"] == "robot" and started["language"] == "en"
+
+        # Revoking the approval in Hermes ends the call; the connection stays.
+        gadget.authorized.discard(phone.device_id)
+        assert phone.expect("call.ended", id="c2", timeout=8)["reason"] == "unpaired"
+        broker.wait_stopped(started["ref"])
+        phone.send("ping", ts=1)
+        phone.expect("pong")
+    finally:
+        phone.close()
+
+
+def test_an_unknown_authorization_does_not_admit_a_call(calling_gadget):
+    from test_hub_calls import Device, ScriptedBroker
+
+    broker = ScriptedBroker()
+    gadget = calling_gadget(broker)
+    gadget.adapter.set_authorization_check(lambda *a, **kw: None)  # "unknown", e.g. a check that failed
+    phone = Device(gadget.url)
+    try:
+        phone.send("call.start", id="c1", offer="offer-phone")
+        assert phone.expect("call.error", id="c1")["code"] == "not_paired"
+        assert broker.started == []
+    finally:
+        phone.close()
+
+
+def test_a_missing_live_voice_plugin_turns_calls_off(calling_gadget, tmp_path):
+    from test_hub_calls import Device
+
+    gadget = calling_gadget(plugin_dir=tmp_path / "no-such-plugin")
+    phone = Device(gadget.url)
+    try:
+        assert "calls" not in phone.welcome
+    finally:
+        phone.close()
+
+
+LIVE_VOICE_DIR = os.environ.get("HERMES_LIVE_VOICE_DIR")
+
+
+@pytest.mark.skipif(not LIVE_VOICE_DIR, reason="set HERMES_LIVE_VOICE_DIR to a Hermes Live Voice checkout")
+def test_the_live_voice_plugins_broker_serves_device_calls(calling_gadget, tmp_path, monkeypatch):
+    """The real broker module, loaded the way the gateway loads it, against its fake codex app-server."""
+    import shutil
+    import sys
+    from pathlib import Path
+
+    from hermes_gadget_plugin import calls
+    from test_hub_calls import Device
+
+    source = Path(LIVE_VOICE_DIR)
+    plugin = tmp_path / "talk-desktop"
+    shutil.copytree(source / "dashboard", plugin / "dashboard", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copy(source / "language_directive.txt", plugin / "language_directive.txt")
+    codex, log = tmp_path / "codex", tmp_path / "codex.log"
+    codex.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{source / "tests" / "fake_codex_app_server.py"}" "$@"\n')
+    codex.chmod(0o755)
+    monkeypatch.setenv("TALK_CODEX_BINARY", str(codex))
+    monkeypatch.setenv("FAKE_CODEX_LOG", str(log))
+
+    def received(method):
+        lines = log.read_text().splitlines() if log.exists() else []
+        return [m.get("params") for m in map(json.loads, lines) if m.get("method") == method]
+
+    gadget = calling_gadget(plugin_dir=plugin)
+    phone = Device(gadget.url)
+    try:
+        assert phone.welcome["calls"] == ["live"]
+        gadget.authorized.add(phone.device_id)
+        phone.send("call.start", id="c1", offer="offer-phone")
+        assert phone.expect("call.answer", id="c1", timeout=10)["answer"] == "answer:offer-phone"
+        [start] = received("thread/realtime/start")
+        assert "LANGUAGE AND VOICE: Speak English." in start["prompt"]
+        assert start["clientManagedHandoffs"] is True
+        phone.send("call.stop", id="c1")
+        phone.expect("call.ended", id="c1")
+        assert received("thread/realtime/stop") == [{"threadId": start["threadId"]}]
+        # A reconnecting adapter gets the same broker, not a second app-server.
+        assert calls.load_live_voice(plugin) is calls.load_live_voice(plugin)
+    finally:
+        phone.close()
+        calls._loaded.pop((plugin / "dashboard" / "plugin_api.py").resolve())._module._LIVE.close()

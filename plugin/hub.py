@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from . import audio, protocol
+from .calls import KIND as CALL_KIND, CallBroker, CallError, DeviceCalls
 from .store import DeviceStore
 
 log = logging.getLogger("hermes_gadget.hub")
@@ -66,6 +67,12 @@ class HubDelegate:
 
     async def on_disconnect(self, session: "DeviceSession") -> None:
         pass
+
+    async def call_profile(self, session: "DeviceSession") -> str | None:
+        """Admits a live call for ``session`` now: the Hermes profile it runs in, or raises CallError."""
+        if not await self.is_paired(session):
+            raise CallError("not_paired", "this device is not paired with Hermes")
+        return None
 
 
 class Rejected(Exception):
@@ -282,6 +289,8 @@ class DeviceSession:
         if paired:
             self.hub.store.confirm(self.device_id)
         await self.send_json(protocol.message("paired" if paired else "unpaired"))
+        if not paired and self.hub.calls is not None:
+            await self.hub.calls.end_device(self, "unpaired")
 
     async def ask(self, prompt_id: str, title: str, text: str, ttl_s: float | None = None) -> None:
         """Show a yes/no question; the answer arrives as ``on_prompt_reply``."""
@@ -437,6 +446,7 @@ class DeviceHub:
         heartbeat_s: int = 20,
         ssl_context=None,
         max_utterance_s: float = 60.0,
+        call_broker: CallBroker | None = None,
     ):
         self.store = store
         self.delegate = delegate
@@ -445,6 +455,8 @@ class DeviceHub:
         self.heartbeat_s = max(5, int(heartbeat_s))
         self.ssl_context = ssl_context
         self.max_utterance_s = max_utterance_s
+        # Live calls, when a broker is configured; see calls.py.
+        self.calls = DeviceCalls(call_broker, delegate.call_profile) if call_broker is not None else None
         self.sessions: dict[str, DeviceSession] = {}
         self.loop: asyncio.AbstractEventLoop | None = None
         self._server = None
@@ -479,6 +491,8 @@ class DeviceHub:
         return self._server is not None
 
     async def stop(self) -> None:
+        if self.calls is not None:
+            await self.calls.close()
         await asyncio.gather(*(s.close("server stopping") for s in list(self.sessions.values())),
                              return_exceptions=True)
         if self._server is not None:
@@ -597,9 +611,10 @@ class DeviceHub:
             session.paired = bool(await self.delegate.is_paired(session))
             if session.paired:
                 self.store.confirm(session.device_id)
+            extra = {"calls": [CALL_KIND]} if self.calls is not None else {}
             await session.send_json(protocol.message(
                 "welcome", session=session.session_id, paired=session.paired,
-                heartbeat_s=self.heartbeat_s, server="hermes", proto=protocol.VERSION))
+                heartbeat_s=self.heartbeat_s, server="hermes", proto=protocol.VERSION, **extra))
             log.info("device %s (%s) online, paired=%s", session.device_id, session.name, session.paired)
             await self.delegate.on_ready(session)
             heartbeat = asyncio.create_task(self._heartbeat(session))
@@ -620,6 +635,8 @@ class DeviceHub:
                 heartbeat.cancel()
             if session is not None:
                 session._shutdown()
+                if self.calls is not None:
+                    await self.calls.end_device(session, "disconnected", notify=False)
                 if self.sessions.get(session.device_id) is session:
                     del self.sessions[session.device_id]
                 log.info("device %s offline", session.device_id)
@@ -746,6 +763,20 @@ class DeviceHub:
     async def _h_pong(self, session: DeviceSession, msg: dict) -> None:
         pass  # last_rx already refreshed
 
+    async def _h_call_start(self, session: DeviceSession, msg: dict) -> None:
+        if self.calls is None:
+            await session.send_json(protocol.message(
+                "call.error", id=str(msg.get("id") or "")[:64], code="unsupported",
+                message="this Hermes host does not offer live calls"))
+            return
+        session.spawn(self.calls.start(session, msg))  # startup takes seconds; keep reading meanwhile
+
+    async def _h_call_stop(self, session: DeviceSession, msg: dict) -> None:
+        if self.calls is None:
+            await session.send_json(protocol.message("call.ended", id=str(msg.get("id") or "")[:64], reason="not_found"))
+            return
+        session.spawn(self.calls.stop(session, msg))
+
     async def _h_ota(self, session: DeviceSession, msg: dict) -> None:
         if session._ota_inbox is not None:
             session._ota_inbox.put_nowait(msg)
@@ -767,4 +798,6 @@ class DeviceHub:
         "ota.ack": _h_ota,
         "ota.done": _h_ota,
         "ota.error": _h_ota,
+        "call.start": _h_call_start,
+        "call.stop": _h_call_stop,
     }

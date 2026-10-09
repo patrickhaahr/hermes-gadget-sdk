@@ -29,6 +29,12 @@ class GadgetCore(
     private val onAudio: (AudioStatus) -> Unit,
     private val onStopped: (String) -> Unit,
     private val voiceMode: () -> VoiceMode = { VoiceMode.HERMES },
+    callMedia: CallMediaFactory = CallMediaFactory { events -> events.failed("calls are not available"); null },
+    cue: Cue = object : Cue {
+        override fun play() {}
+        override fun stop() {}
+    },
+    private val onCall: (CallStatus) -> Unit = {},
 ) : NativeHost, TransportEvents {
     private val thread = HandlerThread("gadget-core").apply { start() }
     private val handler = Handler(thread.looper)
@@ -44,9 +50,19 @@ class GadgetCore(
         startRequest = { if (handle != 0L) NativeCore.startWakeRequest(handle).decodeToString() else "The gadget is not running" },
         discardRequest = { if (handle != 0L) NativeCore.discardWakeRequest(handle) },
         voiceMode = voiceMode)
+    private val call: LiveCall = LiveCall(audio, callMedia, cue, transport::sendText, ::post, ::nowMs,
+        onStatus = { status ->
+            callStatus = status
+            onCall(status)
+        },
+        log = { Log.i(CALL_TAG, it) })
 
     /** The microphone's owner, as last reported on the core thread. */
     @Volatile var audioStatus = audio.status
+        private set
+
+    /** The Live call's state, as last reported on the core thread. */
+    @Volatile var callStatus: CallStatus = call.status
         private set
 
     private val tick = object : Runnable {
@@ -54,6 +70,7 @@ class GadgetCore(
             if (handle == 0L) return
             NativeCore.tick(handle)
             audio.tick(nowMs())
+            call.tick()
             handler.postDelayed(this, TICK_MS)
         }
     }
@@ -75,6 +92,7 @@ class GadgetCore(
     fun stop() {
         post {
             handler.removeCallbacks(tick)
+            call.end("The gadget stopped")
             audio.close()
             speaker.release()
             transport.shutdown()
@@ -97,8 +115,14 @@ class GadgetCore(
 
     fun button(button: Int, pressed: Boolean) = post { if (handle != 0L) NativeCore.button(handle, button, pressed) }
 
-    /** Microphone off stops all capture, wake listening included, until it is turned on again. */
-    fun setMicrophoneEnabled(enabled: Boolean) = post { audio.setMicrophoneEnabled(enabled) }
+    /** Microphone off stops all capture, wake listening and any call included, until it is turned on again. */
+    fun setMicrophoneEnabled(enabled: Boolean) = post { call.setMicrophoneEnabled(enabled) }
+
+    /** Start call: a subscription Live call over the paired connection. */
+    fun startCall() = post { call.start() }
+
+    /** End call: hangs up; the gadget connection stays. */
+    fun endCall() = post { call.end() }
 
     /** Runs a serial-console command (such as `set screen_timeout 60`) on the core thread. */
     fun console(line: String, callback: (String) -> Unit) = post {
@@ -113,11 +137,12 @@ class GadgetCore(
     // -- TransportEvents (core thread) ----------------------------------------------------
 
     override fun onOpen() {
+        call.transportOpened()
         if (handle != 0L) NativeCore.transportOpen(handle)
     }
 
     override fun onText(text: String) {
-        if (handle != 0L) NativeCore.transportText(handle, text.toByteArray())
+        if (call.inbound(text) && handle != 0L) NativeCore.transportText(handle, text.toByteArray())
     }
 
     override fun onBinary(data: ByteArray) {
@@ -125,19 +150,26 @@ class GadgetCore(
     }
 
     override fun onClosed(reason: String) {
+        call.transportClosed()
         if (handle != 0L) NativeCore.transportClosed(handle, reason.toByteArray())
     }
 
     // -- NativeHost (core thread) ---------------------------------------------------------
 
-    override fun transportConnect(url: ByteArray, subprotocol: ByteArray) =
+    // A socket the core replaces or closes reports nothing more, so the call learns it here.
+    override fun transportConnect(url: ByteArray, subprotocol: ByteArray) {
+        call.transportClosed()
         transport.connect(url.decodeToString(), subprotocol.decodeToString())
+    }
 
     override fun transportSendText(data: ByteArray) = transport.sendText(data.decodeToString())
 
     override fun transportSendBinary(data: ByteArray) = transport.sendBinary(data)
 
-    override fun transportClose() = transport.close()
+    override fun transportClose() {
+        call.transportClosed()
+        transport.close()
+    }
 
     override fun displayFlush(y0: Int, y1: Int) {
         val fb = NativeCore.framebuffer(handle) ?: return
@@ -216,6 +248,7 @@ class GadgetCore(
         private const val STOP_WAIT_MS = 2000L
         private const val TAG = "HermesGadget"
         private const val WAKE_TAG = "HermesWake"
+        private const val CALL_TAG = "HermesCall"
         private val LOG_PRIORITY = intArrayOf(Log.DEBUG, Log.INFO, Log.WARN, Log.ERROR)
     }
 }
