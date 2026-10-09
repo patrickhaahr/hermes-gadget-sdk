@@ -251,6 +251,25 @@ A device can ask for a voice call with the GPT-Live model on the Hermes host's C
 - Error codes: `bad_request`, `busy` (this device already has a call), `not_paired`, `unsupported` (the host doesn't offer calls), and the voice service's own codes, such as `live_timeout`, `live_start_failed`, `live_unsupported` (the host's codex-cli is too old to restrict the call's thread), `live_unsafe` and `live_sin_quota` (the subscription's limit). A failed call isn't retried, and no other voice lane is substituted.
 - The server gives up on a start after about 25 seconds; the Android client gives up after 20 and sends `call.stop`.
 
+#### Tasks in a Live call
+
+A calling host also advertises `"call_tasks": true` in `welcome` when it supports task handoffs. This is optional; an older device ignores it, and an updated phone can still converse with an older host but refuses task submission explicitly.
+
+| Message | Direction | Meaning |
+|---|---|---|
+| `{"type":"call.task","id":"call-1","delegation":"d1","text":"Check the hostname"}` | device → server | Submit this native voice delegation to the current call owner's gadget conversation as a TEXT turn |
+| `{"type":"call.task.status","id":"call-1","delegation":"d1","state":"accepted","turn":"s1:voice-..."}` | server → device | Hermes accepted the request. `turn` is the actual gateway message/turn id |
+| `{"type":"call.task.status","id":"call-1","delegation":"d1","state":"completed","turn":"s1:voice-...","text":"The hostname is zaza."}` | server → device | Final result, after gateway delivery and turn completion |
+| `{"type":"call.task.status","id":"call-1","delegation":"d2","state":"busy","text":"..."}` | server → device | A task is running in this gadget conversation; wait and ask again. Nothing is queued |
+| `{"type":"call.task.status","id":"call-1","delegation":"d3","state":"failed","text":"..."}` | server → device | Invalid/unsupported request, failed admission or failed Hermes turn. An admitted turn includes `turn` |
+| `{"type":"call.task.status","id":"call-1","delegation":"d4","state":"not_connected","text":"..."}` | server → device | This connection no longer owns an active authorized call; no task is submitted |
+
+The server rechecks current Hermes authorization and call ownership for every request. Device/profile fields are ignored. Ids must be nonempty strings of at most 64 characters; task text must be nonempty and at most 4,000 characters. A call retains up to 256 delegation receipts and refuses further requests without evicting ids. Repeating an id returns its existing receipt, including busy/failure receipts; it never executes another turn or changes the request. After call teardown an old request is refused. No transport failure automatically retries a request.
+
+The phone forwards `delegation.created` from `oai-events`; the final result or refusal resolves that item through `delegation.context.append` with `delegation_item_id` and `content: [{"type":"input_text","text":"..."}]`. Acceptance is only a receipt, not a spoken result. The phone verifies call/delegation/turn correlation and consumes a terminal receipt once; duplicates and late receipts cannot speak twice or enter a new call. Voice text is capped at 3,500 characters, including the result instruction.
+
+Accepted work has a separate lifetime from the call. The adapter retains its slot until the gateway's processing-complete hook, including after hang-up, disconnect or microphone disable. Final gadget replies can be shown silently; both streaming and file TTS are suppressed for the task. Only a still-authorized originating call gets its result receipt. Approvals still use `prompt` / `prompt.reply`. `call.stop` never sends `/stop`, resets the gadget session or submits waiting work.
+
 ### Android wake requests
 
 Android Hermes voice uses the existing `audio.start` (`mode: "tap"`), PCM16 frames and `audio.end` messages. It buffers a wake request locally, then sends these in order after end-of-speech; servers need no new mode or handler. Requests discarded before submission send no audio messages. Hold-to-talk still streams while recording. Audio before the detection chunk is never included.

@@ -25,7 +25,8 @@ import pytest
 from conftest import REPO, requires_sim
 
 AGENT_DIR = Path(os.environ.get("HERMES_AGENT_DIR", REPO.parent / "hermes-agent"))
-VENV_PY = AGENT_DIR / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+VENV_PY = Path(os.environ.get("HERMES_GADGET_TEST_PYTHON", AGENT_DIR / ".venv" / (
+    "Scripts/python.exe" if sys.platform == "win32" else "bin/python")))
 
 pytestmark = [
     requires_sim,
@@ -73,7 +74,7 @@ def _hermes(home: Path, *args: str, **kw) -> subprocess.CompletedProcess:
 
 
 @pytest.fixture
-def gateway(tmp_path):
+def gateway(tmp_path, request):
     from fakes import fake_openai
 
     api_server, api_port = fake_openai.start(0)
@@ -81,8 +82,21 @@ def gateway(tmp_path):
     home = tmp_path / "hermes-home"
     (home / "plugins").mkdir(parents=True)
     shutil.copytree(REPO / "plugin", home / "plugins" / "gadget", ignore=shutil.ignore_patterns("__pycache__"))
-    (home / "config.yaml").write_text(CONFIG.format(api=api_port, gadget=gadget_port), encoding="utf-8")
+    config = CONFIG.format(api=api_port, gadget=gadget_port)
     env = {**os.environ, "HERMES_HOME": str(home), "PYTHONUTF8": "1"}
+    if getattr(request, "param", None) == "calls":
+        source = Path(os.environ.get("HERMES_LIVE_VOICE_DIR", REPO.parent / "hermes-live-voice")).resolve()
+        if not (source / "tests" / "fake_codex_app_server.py").exists():
+            pytest.skip("needs HERMES_LIVE_VOICE_DIR with the device-call broker")
+        shutil.copytree(source / "dashboard", home / "plugins" / "talk-desktop" / "dashboard",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copy(source / "language_directive.txt", home / "plugins" / "talk-desktop")
+        codex = tmp_path / "codex"
+        codex.write_text(f'#!/bin/sh\nexec "{VENV_PY}" "{source / "tests" / "fake_codex_app_server.py"}" "$@"\n')
+        codex.chmod(0o755)
+        env["TALK_CODEX_BINARY"] = str(codex)
+        config = config.replace("      port:", "      live_calls: true\n      port:")
+    (home / "config.yaml").write_text(config, encoding="utf-8")
     log = open(tmp_path / "gateway.out", "w", encoding="utf-8")
     proc = subprocess.Popen([str(VENV_PY), "-m", "hermes_cli.main", "gateway", "run"], cwd=AGENT_DIR, env=env,
                             stdout=log, stderr=subprocess.STDOUT)
@@ -97,7 +111,8 @@ def gateway(tmp_path):
         time.sleep(0.5)
     else:
         pytest.fail("gateway did not open the gadget port")
-    yield {"url": url, "home": home, "api": fake_openai.Handler.requests_log}
+    yield {"url": url, "home": home, "api": fake_openai.Handler.requests_log, "model": fake_openai.Handler}
+    fake_openai.Handler.release.set()
     proc.terminate()
     try:
         proc.wait(timeout=30)
@@ -166,3 +181,76 @@ def test_device_pairs_talks_and_is_driven_by_the_agent(gateway, make_sim):
     paths = [r["path"] for r in gateway["api"]]
     assert any(p.endswith("/audio/transcriptions") for p in paths)
     assert any(p.endswith("/audio/speech") for p in paths)
+
+
+@pytest.mark.parametrize("gateway", ["calls"], indirect=True)
+def test_live_task_uses_the_gadget_history_and_returns_once_without_gadget_speech(gateway):
+    from test_hub_calls import Device
+
+    phone = Device(gateway["url"], caps={"speaker": {"rate": 24000}})
+    model = gateway["model"]
+    try:
+        pairing = phone.expect("pairing", timeout=60)
+        assert _hermes(gateway["home"], "pairing", "approve", "gadget", pairing["code"]).returncode == 0
+        phone.expect("paired", timeout=30)
+        phone.send("text", id="history", text="remember gadget continuity token")
+        phone.expect("turn.end", timeout=90)
+        audio_before = len(phone.received("audio.start"))
+        tts_before = sum(r["path"].endswith("/audio/speech") for r in gateway["api"])
+        phone.send("call.start", id="c1", offer="offer-phone", profile="someone-else")
+        phone.expect("call.answer", id="c1", timeout=15)
+        model.blocked_text = "put a note on my screen"
+        model.entered.clear()
+        model.release.clear()
+        task = dict(id="c1", delegation="d1", text=model.blocked_text, device_id="another-device", profile="elsewhere")
+        phone.send("call.task", **task)
+        accepted = phone.expect("call.task.status", id="c1", delegation="d1", state="accepted")
+        assert accepted["turn"]
+        assert model.entered.wait(60), gateway["api"]
+        phone.send("call.task", **task)
+        assert phone.expect("call.task.status", delegation="d1", state="accepted")["turn"] == accepted["turn"]
+        phone.send("call.task", id="c1", delegation="d2", text="turn the led on")
+        assert "wait" in phone.expect("call.task.status", delegation="d2", state="busy")["text"].lower()
+        model.release.set()
+        phone.expect("display", timeout=90)  # the real gateway executed the gadget tool
+        result = phone.expect("call.task.status", delegation="d1", state="completed", timeout=90)
+        assert result["turn"] == accepted["turn"]
+        assert "Done" in result["text"]
+        phone.expect("turn.end", turn=accepted["turn"])
+        assert len(phone.received("audio.start")) == audio_before, phone.seen
+        assert sum(r["path"].endswith("/audio/speech") for r in gateway["api"]) == tts_before
+        posts = [r for r in gateway["api"] if model.blocked_text in r.get("user", "")]
+        assert len(posts) == 2  # one model request and one tool-result request, no duplicate task
+        assert any("remember gadget continuity token" in str(r["messages"]) for r in posts)
+        phone.send("call.task", **task)
+        assert phone.expect("call.task.status", delegation="d1", state="completed")["turn"] == accepted["turn"]
+        phone.send("call.stop", id="c1")
+        phone.expect("call.ended", id="c1")
+        phone.send("call.task", **task)
+        phone.expect("call.task.status", delegation="d1", state="not_connected")
+
+        # Accepted work keeps the slot after hang-up. Its late result stays silent
+        # even with a new call on the same gadget conversation.
+        phone.send("call.start", id="c2", offer="offer-next")
+        phone.expect("call.answer", id="c2")
+        model.blocked_text = "check task after hangup"
+        model.entered.clear()
+        model.release.clear()
+        phone.send("call.task", id="c2", delegation="late", text=model.blocked_text)
+        late = phone.expect("call.task.status", delegation="late", state="accepted")
+        assert model.entered.wait(60)
+        phone.send("call.stop", id="c2")
+        phone.expect("call.ended", id="c2")
+        phone.send("call.start", id="c3", offer="offer-third")
+        phone.expect("call.answer", id="c3")
+        phone.send("call.task", id="c3", delegation="too-soon", text="do another task")
+        phone.expect("call.task.status", delegation="too-soon", state="busy")
+        model.release.set()
+        phone.expect("turn.end", turn=late["turn"], timeout=90)
+        assert not [m for m in phone.received("call.task.status") if m.get("delegation") == "late" and m["state"] == "completed"]
+        assert len(phone.received("audio.start")) == audio_before
+        assert phone.received("call.ended")[-1]["id"] == "c2"  # new call still alive
+    finally:
+        model.blocked_text = None
+        model.release.set()
+        phone.close()

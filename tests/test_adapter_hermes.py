@@ -623,6 +623,45 @@ def test_an_unknown_authorization_does_not_admit_a_call(calling_gadget):
         phone.close()
 
 
+def test_voice_tasks_check_current_authorization_and_report_gateway_failure(calling_gadget):
+    from gateway.platforms.event import MessageType
+    from test_hub_calls import Device, ScriptedBroker
+
+    gadget = calling_gadget(ScriptedBroker(), profile="robot")
+    events = []
+
+    async def fail(event):
+        events.append(event)
+        raise RuntimeError("controlled model failure")
+
+    phone = Device(gadget.url)
+    try:
+        gadget.authorized.add(phone.device_id)
+        phone.expect("paired", timeout=8)
+        gadget.adapter.set_message_handler(fail)
+        phone.send("call.start", id="c1", offer="offer-phone")
+        phone.expect("call.answer", id="c1")
+        gadget.authorized.remove(phone.device_id)  # before the pairing poll notices
+        phone.send("call.task", id="c1", delegation="denied", text="Do not execute", profile="other")
+        assert "not paired" in phone.expect("call.task.status", delegation="denied", state="not_connected")["text"]
+        assert events == []
+        gadget.authorized.add(phone.device_id)
+        phone.send("call.task", id="c1", delegation="failed", text="Check something", device_id="other")
+        accepted = phone.expect("call.task.status", delegation="failed", state="accepted")
+        result = phone.expect("call.task.status", delegation="failed", state="failed")
+        assert result["turn"] == accepted["turn"]
+        assert "without a result" in result["text"]
+        [event] = events
+        assert event.message_type == MessageType.TEXT
+        assert event.source.chat_id == event.source.user_id == phone.device_id
+        assert event.allow_gateway_control is False
+        phone.send("call.task", id="c1", delegation="failed", text="Replace the failed request")
+        phone.expect("call.task.status", delegation="failed", state="failed")
+        assert len(events) == 1
+    finally:
+        phone.close()
+
+
 def test_a_missing_live_voice_plugin_turns_calls_off(calling_gadget, tmp_path):
     from test_hub_calls import Device
 
@@ -647,7 +686,7 @@ def test_the_live_voice_plugins_broker_serves_device_calls(calling_gadget, tmp_p
     from hermes_gadget_plugin import calls
     from test_hub_calls import Device
 
-    source = Path(LIVE_VOICE_DIR)
+    source = Path(LIVE_VOICE_DIR).resolve()
     plugin = tmp_path / "talk-desktop"
     shutil.copytree(source / "dashboard", plugin / "dashboard", ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copy(source / "language_directive.txt", plugin / "language_directive.txt")

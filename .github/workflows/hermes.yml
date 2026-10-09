@@ -46,6 +46,11 @@ jobs:
       - name: Show the Hermes commit under test
         working-directory: hermes-agent
         run: git log -1 --format='Hermes Agent %H (%cs) %s'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          repository: patrickhaahr/hermes-live-voice
+          ref: 3514df562e30d70e484f8c1d2f5a64a293fa9e62
+          path: hermes-live-voice
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
         with:
           enable-cache: true
@@ -64,4 +69,5 @@ jobs:
         working-directory: hermes-gadget-sdk
         env:
           HERMES_GADGET_E2E: "1"
+          HERMES_LIVE_VOICE_DIR: ../hermes-live-voice
         run: ../hermes-agent/.venv/bin/python -m pytest -q -rs

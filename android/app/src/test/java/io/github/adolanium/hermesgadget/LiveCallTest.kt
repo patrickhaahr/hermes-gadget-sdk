@@ -61,6 +61,7 @@ class LiveCallTest {
     private inner class FakeMedia(val events: CallMediaEvents) : CallMedia {
         var offers = 0
         val answers = mutableListOf<String>()
+        val responses = mutableListOf<Pair<String, String>>()
         var closed = false
 
         override fun createOffer() {
@@ -75,6 +76,12 @@ class LiveCallTest {
 
         override fun close() {
             closed = true
+        }
+
+        override fun respond(delegation: String, text: String): Boolean {
+            check(!closed)
+            responses += delegation to text
+            return true
         }
     }
 
@@ -184,7 +191,7 @@ class LiveCallTest {
         pump()
     }
 
-    private fun online(calls: Boolean = true, paired: Boolean = true) {
+    private fun online(calls: Boolean = true, paired: Boolean = true, tasks: Boolean = true) {
         NativeCore.network(handle, true, "Wi-Fi".toByteArray())
         run(2000)
         call.transportOpened()
@@ -194,7 +201,7 @@ class LiveCallTest {
         server("""{"type":"challenge","nonce":"$nonce","enrolled":false}""")
         run(50)
         val offer = if (calls) ""","calls":["live"]""" else ""
-        server("""{"type":"welcome","session":"s1","paired":$paired,"heartbeat_s":20,"server":"hermes","proto":1$offer}""")
+        server("""{"type":"welcome","session":"s1","paired":$paired,"heartbeat_s":20,"server":"hermes","proto":1,"call_tasks":$tasks$offer}""")
         run(600)
         assertEquals(AudioState.WAKE_LISTENING, audio.status.state)
     }
@@ -215,6 +222,90 @@ class LiveCallTest {
         val id = frames("call.start").last().getString("id")
         server("""{"type":"call.answer","id":"$id","answer":"v=0 answer"}""")
         return id to m
+    }
+
+    @Test
+    fun aDelegationUsesTheGadgetConnectionAndOnlyItsFinalResultIsSpokenOnce() {
+        online()
+        val (id, m) = answeredCall()
+        m.events.ready()
+        pump()
+        m.events.delegation("d1", "Check the timer")
+        m.events.delegation("d1", "Check the timer")
+        pump()
+        val request = frames("call.task").single()
+        assertEquals(id, request.getString("id"))
+        assertEquals("d1", request.getString("delegation"))
+        assertEquals("Check the timer", request.getString("text"))
+        assertFalse(request.has("profile") || request.has("device_id"))
+        server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"accepted","turn":"s1:t1"}""")
+        assertTrue(m.responses.isEmpty())
+        server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"completed","turn":"other","text":"wrong result"}""")
+        assertTrue(m.responses.isEmpty())
+        repeat(2) {
+            server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"completed","turn":"s1:t1","text":"The timer has two minutes left."}""")
+        }
+        assertEquals("d1", m.responses.single().first)
+        assertTrue(m.responses.single().second.contains("two minutes left"))
+        assertEquals(CallState.ACTIVE, call.status.state)
+        assertEquals(0, binary)
+    }
+
+    @Test
+    fun busyFeedbackDoesNotQueueAndOldCallResultsNeverReachANewCall() {
+        online()
+        val (id, m) = answeredCall()
+        m.events.ready()
+        pump()
+        m.events.delegation("d1", "Check the timer")
+        pump()
+        server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"busy","text":"Please wait, then ask again."}""")
+        assertEquals("Please wait, then ask again.", m.responses.single().second)
+        run(1000)
+        assertEquals(1, frames("call.task").size)
+        call.end()
+        run(600)
+        val (_, next) = answeredCall()
+        next.events.ready()
+        pump()
+        m.events.delegation("late", "Never submit this")
+        server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"completed","text":"Old result"}""")
+        pump()
+        assertTrue(next.responses.isEmpty())
+        assertEquals(1, frames("call.task").size)
+        assertEquals(0, frames("cancel").size)
+        assertEquals(0, frames("session.new").size)
+    }
+
+    @Test
+    fun anOnScreenApprovalCanBeAnsweredWhileTheCallOwnsTheMicrophone() {
+        online()
+        val (_, m) = answeredCall()
+        m.events.ready()
+        pump()
+        server("""{"type":"prompt","id":"p1","title":"Allow command?","text":"test command"}""")
+        run(700)
+        talk(true)
+        talk(false)
+        val answer = frames("prompt.reply").single()
+        assertEquals("p1", answer.getString("id"))
+        assertEquals("yes", answer.getString("answer"))
+        assertEquals(CallState.ACTIVE, call.status.state)
+        assertNull(capture.sink)
+        assertEquals(0, binary)
+    }
+
+    @Test
+    fun anOlderHostCanConverseButGetsNoTaskSubmission() {
+        online(tasks = false)
+        val (_, m) = answeredCall()
+        m.events.ready()
+        pump()
+        m.events.delegation("d1", "Check the timer")
+        pump()
+        assertTrue(frames("call.task").isEmpty())
+        assertTrue(m.responses.single().second.contains("update the gadget plugin"))
+        assertEquals(CallState.ACTIVE, call.status.state)
     }
 
     @Test

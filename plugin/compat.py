@@ -48,6 +48,8 @@ ADAPTER_HOOKS: tuple[str, ...] = (
     "_mark_connected",
     "_mark_disconnected",
     "_wire_plugin_handlers",
+    "_event_session_key",
+    "_active_sessions",
 )
 
 
@@ -67,9 +69,9 @@ def missing(resolve: Callable[[str], object] = importlib.import_module) -> list[
         if module_name == "gateway.platforms.base":
             base = getattr(module, "BasePlatformAdapter", None)
     if base is not None:
-        # _auto_tts_disabled_chats is set per instance; the rest are class members.
+        # These collections are set per instance; the rest are class members.
         gaps.extend(f"BasePlatformAdapter.{hook}" for hook in ADAPTER_HOOKS
-                    if hook != "_auto_tts_disabled_chats" and not hasattr(base, hook))
+                    if hook not in ("_auto_tts_disabled_chats", "_active_sessions") and not hasattr(base, hook))
     return gaps
 
 

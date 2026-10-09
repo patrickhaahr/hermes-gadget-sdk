@@ -137,6 +137,10 @@ class WebRtcCallMedia(context: Context, private val events: CallMediaEvents) : C
         if (!closed) peer.setRemoteDescription(Sdp("answer"), SessionDescription(SessionDescription.Type.ANSWER, sdp))
     }
 
+    override fun respond(delegation: String, text: String): Boolean = send(
+        JSONObject().put("type", "delegation.context.append").put("delegation_item_id", delegation)
+            .put("content", org.json.JSONArray().put(JSONObject().put("type", "input_text").put("text", text.take(3500)))))
+
     override fun close() {
         synchronized(this) {
             if (closed) return
@@ -252,12 +256,10 @@ class WebRtcCallMedia(context: Context, private val events: CallMediaEvents) : C
                     Log.i(TAG, "${turn.optString("role")} turn done (${turn.optString("transcript").length} characters)")
                 }
                 "error" -> Log.w(TAG, "voice service error: ${event.optJSONObject("error")?.optString("message") ?: event}")
-                // Hermes tasks from a phone call arrive with fork issue #6. Until then the voice
-                // says so instead of waiting for a result that never comes.
-                "delegation.created" -> event.optJSONObject("item")?.optString("id")?.takeIf { it.isNotEmpty() }?.let { item ->
-                    Log.i(TAG, "declined a task request: tasks are not available in phone calls yet")
-                    send(JSONObject().put("type", "delegation.context.append").put("delegation_item_id", item)
-                        .put("content", org.json.JSONArray().put(JSONObject().put("type", "input_text").put("text", NO_TASKS))))
+                "delegation.created" -> event.optJSONObject("item")?.let { item ->
+                    val content = item.optJSONArray("content") ?: org.json.JSONArray()
+                    val text = (0 until content.length()).joinToString("") { content.optJSONObject(it)?.optString("text") ?: "" }.trim()
+                    events.delegation(item.optString("id"), text)
                 }
             }
         }
@@ -274,16 +276,14 @@ class WebRtcCallMedia(context: Context, private val events: CallMediaEvents) : C
         }
     }
 
-    private fun send(event: JSONObject) {
-        if (closed) return
+    private fun send(event: JSONObject): Boolean {
+        if (closed) return false
         val bytes = event.toString().toByteArray(StandardCharsets.UTF_8)
-        channel.send(DataChannel.Buffer(java.nio.ByteBuffer.wrap(bytes), false))
+        return channel.send(DataChannel.Buffer(java.nio.ByteBuffer.wrap(bytes), false))
     }
 
     private companion object {
         const val STATS_MS = 10_000L
-        const val NO_TASKS = "Hermes can't run tasks from a phone call yet. Tell the user briefly that you can talk, " +
-            "but can't do that from this call; they can ask Hermes by holding the screen or with \"Hey Hermes\" instead."
     }
 }
 

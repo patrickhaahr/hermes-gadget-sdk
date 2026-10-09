@@ -56,6 +56,7 @@ from gateway.platforms.base import (
 from gateway.platforms.event import MessageEvent, MessageType
 
 from . import audio as gaudio
+from . import protocol
 from . import calls, imaging, ota, runtime, textfmt
 from .hub import DeviceHub, DeviceSession, HubDelegate
 from .store import DeviceStore
@@ -116,6 +117,13 @@ class _Prompt:
         return self.kind == "slash" and time.monotonic() - self.created > SLASH_CONFIRM_TTL_S
 
 
+@dataclass
+class _VoiceTask:
+    call: calls._Call
+    receipt: dict
+    result: str = ""
+
+
 def transcript_echo(content: str) -> Optional[str]:
     """The transcript, if ``content`` is the gateway's echo line in Hermes's active language."""
     line = t(_ECHO_KEY, text=_ECHO_SLOT)
@@ -140,6 +148,7 @@ def confirm_text(title: str, message: str, charset: str = "ascii") -> Tuple[str,
 class GadgetAdapter(BasePlatformAdapter, HubDelegate):
     MAX_MESSAGE_LENGTH = MAX_MESSAGE_LENGTH
     supports_status_text = True
+    supports_call_tasks = True
 
     def __init__(self, config: PlatformConfig):
         super().__init__(config=config, platform=Platform(PLATFORM_NAME))
@@ -161,6 +170,7 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
         self._store: Optional[DeviceStore] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._turns: Dict[str, str] = {}
+        self._voice_tasks: Dict[str, _VoiceTask] = {}  # accepted work outlives its call and device connection
         self._watch_task: Optional[asyncio.Task] = None
         self._update_task: Optional[asyncio.Task] = None
         self._installing: Dict[str, asyncio.Task] = {}  # device id -> staged update being installed
@@ -409,6 +419,56 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
     async def on_text(self, session: DeviceSession, msg_id: str, text: str) -> None:
         await self.handle_message(self._event(session, msg_id, text, message_type=MessageType.TEXT))
 
+    async def on_call_task(self, session: DeviceSession, msg: dict) -> None:
+        call_id, delegation, text = msg.get("id"), msg.get("delegation"), msg.get("text")
+        receipt = protocol.message("call.task.status", id=call_id, delegation=delegation)
+
+        async def refuse(state: str, reason: str) -> None:
+            await session.send_json(dict(receipt, state=state, text=reason))
+
+        if (not isinstance(call_id, str) or not 0 < len(call_id) <= calls.MAX_ID
+                or not isinstance(delegation, str) or not 0 < len(delegation) <= calls.MAX_ID
+                or not isinstance(text, str) or not text.strip() or len(text) > MAX_MESSAGE_LENGTH):
+            await refuse("failed", "The task request is invalid or too long. Nothing was submitted.")
+            return
+        if self._hub.calls is None:
+            await refuse("failed", "This host does not support voice tasks.")
+            return
+        try:
+            call = await self._hub.calls.task_call(session, call_id)
+        except calls.CallError as exc:
+            await refuse("not_connected", exc.message)
+            return
+        if delegation in call.delegations:
+            await session.send_json(call.delegations[delegation])
+            return
+        # Bound retained receipts without evicting ids: eviction could execute an old request again.
+        if len(call.delegations) >= 256:
+            await refuse("failed", "This call has reached its task request limit. Start a new call.")
+            return
+        event = self._event(session, "voice-" + uuid.uuid4().hex, text.strip(),
+                            message_type=MessageType.TEXT, allow_gateway_control=False)
+        # Hermes's adapter owns the guard for this exact persistent gadget session.
+        # Checking before handle_message avoids its ordinary interrupt/queue policy.
+        if session.device_id in self._voice_tasks or self._event_session_key(event) in self._active_sessions:
+            receipt.update(state="busy", text="A Hermes task is still running. Please wait for it to finish, then ask again. Nothing was queued.")
+            call.delegations[delegation] = receipt
+            await session.send_json(receipt)
+            return
+        receipt.update(state="accepted", turn=event.message_id)
+        task = _VoiceTask(call, receipt)
+        call.delegations[delegation] = receipt
+        self._voice_tasks[session.device_id] = task  # reserve before the first submission await
+        try:
+            await self.handle_message(event)
+            if not getattr(event, "_gateway_accepted", False):
+                raise RuntimeError("Hermes did not accept the task")
+        except Exception:
+            logger.exception("[%s] voice task submission failed", self.name)
+            self._voice_tasks.pop(session.device_id, None)
+            receipt.update(state="failed", text="Hermes could not accept the task. It will not be retried automatically.")
+        await session.send_json(receipt)
+
     async def on_utterance(self, session: DeviceSession, msg_id: str, wav: bytes, seconds: float) -> None:
         path = await cache_audio_from_bytes_async(wav, ".wav")
         logger.debug("[%s] %.1fs utterance from %s -> %s", self.name, seconds, session.device_id, path)
@@ -432,25 +492,38 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
             message_type=MessageType.TEXT, allow_gateway_control=False))
 
     async def on_disconnect(self, session: DeviceSession) -> None:
-        if self._hub and session.device_id not in self._hub.sessions:
+        if self._hub and session.device_id not in self._hub.sessions and session.device_id not in self._voice_tasks:
             self._turns.pop(session.device_id, None)
 
     # -- turn lifecycle -------------------------------------------------------------
 
     async def on_processing_start(self, event: MessageEvent) -> None:
+        turn = event.message_id or uuid.uuid4().hex[:12]
+        self._turns[event.source.chat_id] = turn
         session = self._session(event.source.chat_id)
         if session is None or not session.paired:
             return
-        turn = event.message_id or uuid.uuid4().hex[:12]
-        self._turns[session.device_id] = turn
         await session.turn_start(turn)
 
     async def on_processing_complete(self, event: MessageEvent, outcome) -> None:
+        chat_id = event.source.chat_id
+        state = getattr(outcome, "value", str(outcome))
+        task = self._voice_tasks.get(chat_id)
+        if task is not None and task.receipt["turn"] == event.message_id:
+            self._voice_tasks.pop(chat_id)
+            task.receipt.update(state="completed" if state == "success" else "failed",
+                                text=task.result or "The Hermes task ended without a result.")
+            if self._hub and self._hub.calls and self._hub.calls.owns(task.call):
+                try:
+                    await self.call_profile(task.call.session)
+                    await task.call.session.send_json(task.receipt)
+                except Exception:
+                    pass  # keep the result in Hermes; never deliver to a new call
+        turn = self._turns.pop(chat_id, None) or event.message_id or ""
         session = self._session(event.source.chat_id)
         if session is None or not session.paired:
             return
-        turn = self._turns.pop(session.device_id, None) or event.message_id or ""
-        await session.turn_end(turn, getattr(outcome, "value", str(outcome)))
+        await session.turn_end(turn, state)
 
     def set_status_text(self, chat_id: str, text: Optional[str]) -> None:
         super().set_status_text(chat_id, text)
@@ -471,10 +544,17 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
 
     async def send(self, chat_id: str, content: str, reply_to: Optional[str] = None,
                    metadata: Optional[Dict[str, Any]] = None) -> SendResult:
+        task = self._voice_tasks.get(chat_id)
+        if task is not None and not (metadata or {}).get("_interim_send"):
+            task.result += content + "\n"
         session = self._session(chat_id)
         if session is None:
+            if task is not None:
+                return SendResult(success=True)  # stored by Hermes; deliberately silent after disconnect
             return SendResult(success=False, error=f"gadget {chat_id} is not connected")
         if not session.paired:
+            if task is not None:
+                return SendResult(success=True)  # revoked devices get no task content
             await self._forward_unpaired(session, content)
             return SendResult(success=True, message_id=uuid.uuid4().hex[:12])
         heard = transcript_echo(content or "")
@@ -500,8 +580,13 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
         return SendResult(success=True)
 
     async def edit_message(self, chat_id: str, message_id: str, content: str, *, finalize: bool = False) -> SendResult:
+        task = self._voice_tasks.get(chat_id)
+        if task is not None and finalize and not str(message_id).startswith(PROMPT_PREFIX):
+            task.result = content
         session = self._session(chat_id)
         if session is None or not session.paired:
+            if task is not None:
+                return SendResult(success=True)
             return SendResult(success=False, error="gadget not connected")
         text = textfmt.for_device(content, session.charset)
         if str(message_id).startswith(PROMPT_PREFIX):
@@ -617,7 +702,7 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
     def _should_auto_tts_for_chat(self, chat_id: str) -> bool:
         # Speaking devices answer voice with voice by default; an explicit
         # "/voice off" in this chat still wins.
-        if chat_id in self._auto_tts_disabled_chats:
+        if chat_id in self._voice_tasks or chat_id in self._auto_tts_disabled_chats:
             return False
         session = self._session(chat_id)
         if session is not None and session.has_speaker and self._speak_replies:
@@ -625,6 +710,8 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
         return super()._should_auto_tts_for_chat(chat_id)
 
     async def _play_file(self, chat_id: str, path: str) -> SendResult:
+        if chat_id in self._voice_tasks:
+            return SendResult(success=True)  # Live owns speech, including when its call has ended
         session = self._session(chat_id)
         if session is None or not session.paired:
             return SendResult(success=False, error="gadget not connected")
@@ -651,7 +738,7 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
 
     def supports_streaming_tts(self, chat_id: str, audio_format: AudioFormat) -> bool:
         session = self._session(chat_id)
-        return bool(session and session.paired and session.has_speaker
+        return bool(chat_id not in self._voice_tasks and session and session.paired and session.has_speaker
                     and audio_format.sample_width == 2 and audio_format.channels in (1, 2))
 
     async def begin_streaming_tts(self, chat_id: str, audio_format: AudioFormat,

@@ -150,9 +150,13 @@ To interrupt the voice, talk over it. The voice service decides when you are int
 
 A call ends with **End call**, **Microphone off**, a lost connection to Hermes, or unpairing the phone. A call that isn't ready 20 seconds after **Start call** fails. A failed or dropped call says why above the button and returns to wake listening. Nothing reconnects or retries on its own; tap **Start call** again. Each call starts with fresh spoken context. The phone's calls are independent of Hermes Desktop's Live Voice calls: the gateway runs its own copy of the plugin's call broker, so starting or ending one never touches the other.
 
-Hermes tasks can't be requested from a call yet. When the voice tries to hand one over, it is told to say so. Use hold-to-talk or "Hey Hermes" in Hermes voice mode for tasks. A wake doesn't start a call yet either.
+During a call, ask for a task: for example, "Ask Hermes to check the current hostname and tell me the result." The voice hands it to the phone's existing gadget conversation in the host's selected profile. Hermes uses that conversation's normal task model and approval policy. The phone shows **Hermes is working; you can keep talking**; casual conversation stays in the call while Hermes works. Stories and small talk should be answered by the voice itself. If Hermes asks for approval, answer with the existing on-screen yes/no controls. Spoken approvals aren't supported.
 
-`adb logcat -s HermesCall` follows a call: startup, whose echo canceller and noise suppressor it uses, the time to the ready cue, the connection state, and the length of each spoken turn. Every 10 seconds it logs how many bytes went each way and the loudest microphone sample after the phone's audio processing, in dBFS, or `silent`. It never logs audio or what was said.
+One Hermes task can run at a time. Another request gets spoken wait feedback; it isn't queued or substituted for the first. Ask again after the result. The result is spoken once through the call, with gadget text-to-speech suppressed for that task. Long results are shortened for the voice; the complete conversation remains in Hermes.
+
+Hanging up or turning the microphone off leaves accepted Hermes work running. Its result stays in the gadget conversation and can appear silently on the screen, but it is never spoken after hang-up or passed to a later call. A lost connection never automatically resubmits a task whose acceptance is unknown. Starting a new call preserves gadget task history and starts fresh spoken context. Update both the gadget plugin and the Live Voice fork for phone task support and its conversation policy; an older gadget host is reported as unable to run voice tasks. A wake doesn't start a call yet.
+
+`adb logcat -s HermesCall` follows a call: startup, whose echo canceller and noise suppressor it uses, the time to the ready cue, the connection state, task delegation ids and correlated Hermes turn ids, and the length of each spoken turn. Every 10 seconds it logs how many bytes went each way and the loudest microphone sample after the phone's audio processing, in dBFS, or `silent`. It never logs audio, task text, results or what was said.
 
 ## Change the settings
 
@@ -205,7 +209,7 @@ Don't use `./gradlew connectedAndroidTest` on a configured gadget. It uninstalls
 
 ## Limits
 
-- Live calls can't run Hermes tasks, start from a wake, or end on a spoken "Goodbye Hermes" or after a silence yet. Loudspeaker echo and interruption have been checked on the 8T at 1 m in a quiet room, with the phone flat and volume at maximum; other placements and conditions remain untested. Camera support is not included.
+- Live calls can't start from a wake, or end on a spoken "Goodbye Hermes" or after a silence yet. Loudspeaker echo and interruption have been checked on the 8T at 1 m in a quiet room, with the phone flat and volume at maximum; other placements and conditions remain untested. Camera support is not included.
 - The APK carries native WebRTC for Live calls, which makes it about 23 MB larger.
 - Wake listening knows only "Hey Hermes", with English pronunciation. Its accuracy is measured on one phone, one speaker, and one room. The APK includes the wake models, which are licensed for non-commercial use only.
 - The display is the core's renderer at 360 pixels wide, scaled up with square pixels. The app runs in portrait.

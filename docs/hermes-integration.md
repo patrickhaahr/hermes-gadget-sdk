@@ -113,6 +113,10 @@ To use `deliver="gadget"`, configure the gadget home channel. By default, `auto_
 
 Because a gadget is voice-first, `GadgetAdapter` answers `True` from `_should_auto_tts_for_chat` for devices that declare a speaker. The gateway then reads every reply aloud for that chat, both typed and spoken input. `/voice off` in the device's chat, or `speak_replies: false`, turns it off.
 
+Subscription phone calls use a separate handoff. A currently paired call owner sends `call.task`; the adapter creates a TEXT event with the device's existing DM source and its own selected profile, with gateway command coercion disabled. This bypasses `auxiliary.voice_chat` and keeps tasks on the gadget conversation's model. Call, delegation and gateway message/turn ids are retained together. Admission checks the session's processing guard before dispatch, so a busy request neither interrupts work nor enters Hermes's ordinary text queue.
+
+The adapter collects final `send` or finalized `edit_message` output, then resolves the delegation at `on_processing_complete`. Acceptance, busy, failure and completion are explicit receipts. Gadget TTS is disabled for this task at synthesis, streaming and file playback boundaries, even after the call ends. The task slot outlives call teardown; late results remain in Hermes and may be shown silently. The voice call's WebRTC context is fresh each time. Existing on-screen approval handling and Hermes auto-approval are unchanged. See the [task protocol](protocol.md#tasks-in-a-live-call) and [phone instructions](android.md#live-calls).
+
 ### Pairing
 
 The SDK reuses Hermes's DM pairing instead of inventing its own:
@@ -164,6 +168,7 @@ These work on current Hermes and are covered by `tests/test_adapter_hermes.py` a
 4. **Transcript echo detection** matches the echo format: microphone emoji plus quoted text. If the format changes, the transcript is shown as an ordinary reply; nothing breaks.
 5. **Self-confirming `/new`** reads `tools.slash_confirm.get_pending()` to check that the pending confirmation is for the `new` command. It relies on the runner registering a confirmation before it calls `send_slash_confirm`, which Hermes does on purpose so that fast button presses can't race it. If that changes, the device simply asks.
 6. **Question text** is cut down from Hermes's chat-formatted confirmation by dropping the bullet-list and italic paragraphs. A different layout only means a longer question.
+7. **Voice-task admission** uses `_event_session_key` and `_active_sessions` to check the gateway's existing session guard before `handle_message`. It reads that method's `_gateway_accepted` event marker for its receipt. Those are private Hermes conventions, tested against the actual gateway with a controlled model and voice broker; a future public atomic admission API would remove this dependency.
 
 ## Suggested upstream changes (optional; nothing here blocks the SDK)
 

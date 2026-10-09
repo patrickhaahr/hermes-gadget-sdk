@@ -38,6 +38,8 @@ MAX_PENDING_PER_ADDRESS = 4  # ...and from one network address
 class HubDelegate:
     """Decides what device traffic means. Every method has a no-op default."""
 
+    supports_call_tasks = False
+
     async def is_paired(self, session: "DeviceSession") -> bool:
         return True
 
@@ -73,6 +75,10 @@ class HubDelegate:
         if not await self.is_paired(session):
             raise CallError("not_paired", "this device is not paired with Hermes")
         return None
+
+    async def on_call_task(self, session: "DeviceSession", msg: dict) -> None:
+        await session.send_json(protocol.message("call.task.status", id=msg.get("id"),
+            delegation=msg.get("delegation"), state="failed", text="This host does not support voice tasks."))
 
 
 class Rejected(Exception):
@@ -612,6 +618,8 @@ class DeviceHub:
             if session.paired:
                 self.store.confirm(session.device_id)
             extra = {"calls": [CALL_KIND]} if self.calls is not None else {}
+            if self.calls is not None and self.delegate.supports_call_tasks:
+                extra["call_tasks"] = True
             await session.send_json(protocol.message(
                 "welcome", session=session.session_id, paired=session.paired,
                 heartbeat_s=self.heartbeat_s, server="hermes", proto=protocol.VERSION, **extra))
@@ -777,6 +785,9 @@ class DeviceHub:
             return
         session.spawn(self.calls.stop(session, msg))
 
+    async def _h_call_task(self, session: DeviceSession, msg: dict) -> None:
+        session.spawn(self.delegate.on_call_task(session, msg))
+
     async def _h_ota(self, session: DeviceSession, msg: dict) -> None:
         if session._ota_inbox is not None:
             session._ota_inbox.put_nowait(msg)
@@ -800,4 +811,5 @@ class DeviceHub:
         "ota.error": _h_ota,
         "call.start": _h_call_start,
         "call.stop": _h_call_stop,
+        "call.task": _h_call_task,
     }
