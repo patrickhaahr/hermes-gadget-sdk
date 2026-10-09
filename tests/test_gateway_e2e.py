@@ -229,28 +229,89 @@ def test_live_task_uses_the_gadget_history_and_returns_once_without_gadget_speec
         phone.send("call.task", **task)
         phone.expect("call.task.status", delegation="d1", state="not_connected")
 
-        # Accepted work keeps the slot after hang-up. Its late result stays silent
-        # even with a new call on the same gadget conversation.
-        phone.send("call.start", id="c2", offer="offer-next")
-        phone.expect("call.answer", id="c2")
-        model.blocked_text = "check task after hangup"
-        model.entered.clear()
-        model.release.clear()
-        phone.send("call.task", id="c2", delegation="late", text=model.blocked_text)
-        late = phone.expect("call.task.status", delegation="late", state="accepted")
-        assert model.entered.wait(60)
-        phone.send("call.stop", id="c2")
-        phone.expect("call.ended", id="c2")
-        phone.send("call.start", id="c3", offer="offer-third")
-        phone.expect("call.answer", id="c3")
-        phone.send("call.task", id="c3", delegation="too-soon", text="do another task")
-        phone.expect("call.task.status", delegation="too-soon", state="busy")
-        model.release.set()
-        phone.expect("turn.end", turn=late["turn"], timeout=90)
-        assert not [m for m in phone.received("call.task.status") if m.get("delegation") == "late" and m["state"] == "completed"]
-        assert len(phone.received("audio.start")) == audio_before
-        assert phone.received("call.ended")[-1]["id"] == "c2"  # new call still alive
     finally:
         model.blocked_text = None
         model.release.set()
         phone.close()
+
+
+@pytest.mark.parametrize("gateway", ["calls"], indirect=True)
+@pytest.mark.parametrize("teardown", ["hangup", "disconnect", "replace_transport"])
+def test_accepted_live_task_outlives_its_call_and_transport(gateway, teardown):
+    import sqlite3
+
+    from test_hub_calls import Device
+
+    caps = {"speaker": {"rate": 24000}}
+    phone = Device(gateway["url"], caps=caps)
+    devices = [phone]
+    model = gateway["model"]
+    try:
+        pairing = phone.expect("pairing", timeout=60)
+        assert _hermes(gateway["home"], "pairing", "approve", "gadget", pairing["code"]).returncode == 0
+        phone.expect("paired", timeout=30)
+        phone.send("text", id="history", text="remember lifecycle continuity token")
+        phone.expect("turn.end", timeout=90)
+        tts_before = sum(r["path"].endswith("/audio/speech") for r in gateway["api"])
+        phone.seen.clear()
+        phone.send("call.start", id="old-call", offer="offer-old")
+        phone.expect("call.answer", id="old-call")
+        model.blocked_text = "check task after teardown"
+        model.entered.clear()
+        model.release.clear()
+        phone.send("call.task", id="old-call", delegation="late", text=model.blocked_text)
+        late = phone.expect("call.task.status", delegation="late", state="accepted")
+        assert model.entered.wait(60)
+        if teardown == "hangup":
+            phone.send("call.stop", id="old-call")  # also the phone's Microphone off wire action
+            phone.expect("call.ended", id="old-call")
+        else:
+            old = phone
+            if teardown == "disconnect":
+                old.close()
+            phone = Device(gateway["url"], caps=caps, key=old.key)
+            devices.append(phone)
+            assert phone.welcome["paired"] is True
+            assert old.closed.wait(5)
+
+        phone.send("call.start", id="new-call", offer="offer-new")
+        phone.expect("call.answer", id="new-call")
+        # An old request cannot execute on a recreated transport. A fresh native
+        # delegation may use the same item id, but it still waits for the old task.
+        phone.send("call.task", id="old-call", delegation="late", text=model.blocked_text)
+        phone.expect("call.task.status", id="old-call", delegation="late", state="not_connected")
+        phone.send("call.task", id="new-call", delegation="late", text="never queued request")
+        assert "wait" in phone.expect("call.task.status", id="new-call", delegation="late", state="busy")["text"].lower()
+        model.release.set()
+        assert phone.expect("turn.end", turn=late["turn"], timeout=90)["outcome"] == "success"
+        assert not [m for d in devices for m in d.received("call.task.status") if m["state"] == "completed"]
+        assert not any(d.received("audio.start") for d in devices)
+        assert sum(r["path"].endswith("/audio/speech") for r in gateway["api"]) == tts_before
+        posts = [r for r in gateway["api"] if model.blocked_text in r.get("user", "")]
+        assert len(posts) == 1  # accepted work was never retried
+        assert "remember lifecycle continuity token" in str(posts[0]["messages"])
+
+        with sqlite3.connect(gateway["home"] / "state.db") as db:
+            sessions = db.execute("SELECT id FROM sessions WHERE source = 'gadget' AND chat_id = ?",
+                                  (phone.device_id,)).fetchall()
+            assert len(sessions) == 1  # a new voice call did not reset Hermes history
+            history = db.execute("SELECT role, content FROM messages WHERE session_id = ?", sessions[0]).fetchall()
+        assert sum(role == "user" and model.blocked_text in (text or "") for role, text in history) == 1
+        assert any(role == "assistant" and model.blocked_text in (text or "") for role, text in history)
+        assert not any("never queued request" in (text or "") for _, text in history)
+
+        # The terminal hook releases the slot; the still-open new call can now
+        # submit a fresh task. Repeating its earlier busy item must not queue it.
+        phone.send("call.task", id="new-call", delegation="late", text="never queued request")
+        phone.expect("call.task.status", id="new-call", delegation="late", state="busy")
+        phone.send("call.task", id="new-call", delegation="fresh", text="check fresh task")
+        fresh = phone.expect("call.task.status", id="new-call", delegation="fresh", state="accepted")
+        result = phone.expect("call.task.status", id="new-call", delegation="fresh", state="completed", timeout=90)
+        assert result["turn"] == fresh["turn"] != late["turn"]
+        phone.expect("turn.end", turn=fresh["turn"])
+        assert not phone.received("audio.start")
+    finally:
+        model.blocked_text = None
+        model.release.set()
+        for device in devices:
+            device.close()

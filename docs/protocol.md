@@ -270,6 +270,8 @@ The phone forwards `delegation.created` from `oai-events`; the final result or r
 
 Accepted work has a separate lifetime from the call. The adapter retains its slot until the gateway's processing-complete hook, including after hang-up, disconnect or microphone disable. Final gadget replies can be shown silently; both streaming and file TTS are suppressed for the task. Only a still-authorized originating call gets its result receipt. Approvals still use `prompt` / `prompt.reply`. `call.stop` never sends `/stop`, resets the gadget session or submits waiting work.
 
+Reconnecting with the same device key preserves the running gateway's task admission slot. An old call id is refused on the recreated transport; a new call can converse but cannot submit another task while the old one runs. Completion notifications are correlated to their Hermes turn so a duplicate cannot close a later turn. Results completed while disconnected stay in Hermes history; this protocol does not replay missed replies or restore voice receipts on reconnection. Task/receipt tracking is process-local: backend shutdown or gateway restart does not provide durable execution or receipt recovery. Devices must not replay requests whose acceptance is uncertain. Explicit `cancel` and `session.new` keep their existing stop/reset semantics.
+
 ### Android wake requests
 
 Android Hermes voice uses the existing `audio.start` (`mode: "tap"`), PCM16 frames and `audio.end` messages. It buffers a wake request locally, then sends these in order after end-of-speech; servers need no new mode or handler. Requests discarded before submission send no audio messages. Hold-to-talk still streams while recording. Audio before the detection chunk is never included.

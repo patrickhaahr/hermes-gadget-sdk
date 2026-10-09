@@ -254,27 +254,60 @@ class LiveCallTest {
     @Test
     fun busyFeedbackDoesNotQueueAndOldCallResultsNeverReachANewCall() {
         online()
-        val (id, m) = answeredCall()
-        m.events.ready()
-        pump()
-        m.events.delegation("d1", "Check the timer")
-        pump()
-        server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"busy","text":"Please wait, then ask again."}""")
-        assertEquals("Please wait, then ask again.", m.responses.single().second)
-        run(1000)
-        assertEquals(1, frames("call.task").size)
-        call.end()
-        run(600)
-        val (_, next) = answeredCall()
-        next.events.ready()
-        pump()
-        m.events.delegation("late", "Never submit this")
-        server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"completed","text":"Old result"}""")
-        pump()
-        assertTrue(next.responses.isEmpty())
-        assertEquals(1, frames("call.task").size)
+        for (teardown in listOf("hangup", "microphone off", "media failure", "transport loss")) {
+            val before = frames("call.task").size
+            val (id, m) = answeredCall()
+            m.events.ready()
+            pump()
+            m.events.delegation("d1", "Check the timer")
+            pump()
+            server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"accepted","turn":"$id:task"}""")
+            assertTrue(m.responses.isEmpty())
+            when (teardown) {
+                "hangup" -> call.end()
+                "microphone off" -> call.setMicrophoneEnabled(false)
+                "media failure" -> { m.events.failed("lost media"); pump() }
+                "transport loss" -> {
+                    call.transportClosed()
+                    NativeCore.transportClosed(handle, "lost link".toByteArray())
+                }
+            }
+            assertTrue("$teardown released WebRTC", m.closed)
+            run(600)
+            assertEquals(CallState.IDLE, call.status.state)
+            assertEquals(before + 1, frames("call.task").size)
+            assertTrue(m.responses.isEmpty())
+            if (teardown == "microphone off") {
+                assertEquals(AudioState.MICROPHONE_OFF, audio.status.state)
+                assertNull(capture.sink)
+                call.setMicrophoneEnabled(true)
+                run(600)
+            }
+            if (teardown == "transport loss") online()
+            val (newId, next) = answeredCall()
+            next.events.ready()
+            pump()
+            // The new voice session can reuse an item id. Old acknowledgments,
+            // duplicate completions and delayed native events still belong to m.
+            next.events.delegation("d1", "Another task")
+            pump()
+            m.events.delegation("late", "Never submit this")
+            server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"accepted","turn":"$id:task"}""")
+            repeat(2) {
+                server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"completed","turn":"$id:task","text":"Old result"}""")
+            }
+            assertTrue(next.responses.isEmpty())
+            server("""{"type":"call.task.status","id":"$newId","delegation":"d1","state":"busy","text":"Please wait, then ask again."}""")
+            assertEquals("Please wait, then ask again.", next.responses.single().second)
+            run(1000)
+            assertEquals(before + 2, frames("call.task").size)
+            assertEquals(CallState.ACTIVE, call.status.state)
+            call.end()
+            run(600)
+        }
         assertEquals(0, frames("cancel").size)
         assertEquals(0, frames("session.new").size)
+        assertEquals(0, binary)
     }
 
     @Test

@@ -156,6 +156,12 @@ One Hermes task can run at a time. Another request gets spoken wait feedback; it
 
 Hanging up or turning the microphone off leaves accepted Hermes work running. Its result stays in the gadget conversation and can appear silently on the screen, but it is never spoken after hang-up or passed to a later call. A lost connection never automatically resubmits a task whose acceptance is unknown. Starting a new call preserves gadget task history and starts fresh spoken context. Update both the gadget plugin and the Live Voice fork for phone task support and its conversation policy; an older gadget host is reported as unable to run voice tasks. A wake doesn't start a call yet.
 
+**End call and stopping a task are separate actions.** End call, Microphone off, a dropped call and gadget reconnection release the voice connection; they never send Hermes `/stop` or start a new gadget conversation. The existing gadget CANCEL gesture or console `cancel` still explicitly stops Hermes work. Holding CANCEL to start a new session still resets its history. Use those controls only when you intend to stop or reset the task.
+
+A task that outlives its call keeps the one-task slot, including when the phone reconnects with the same identity. You can start a fresh call and converse, but another task gets wait feedback until Hermes completes or reports failure. Busy requests are never queued; ask again with a new request after completion. Duplicate completion notifications cannot end a newer task. Reconnecting the gadget does not replay accepted requests or restore their old voice result; inspect the persistent gadget conversation for results completed while offline.
+
+Task admission and call receipts are tracked in the running gateway's memory. Restarting or shutting down Hermes is separate from ending a call: its runtime may cancel in-flight work, and this integration does not recover that task slot or reconstruct receipts after a gateway restart. Stored conversation history remains subject to Hermes's own persistence. An uncertain submission is not automatically retried, because it may already have executed.
+
 `adb logcat -s HermesCall` follows a call: startup, whose echo canceller and noise suppressor it uses, the time to the ready cue, the connection state, task delegation ids and correlated Hermes turn ids, and the length of each spoken turn. Every 10 seconds it logs how many bytes went each way and the loudest microphone sample after the phone's audio processing, in dBFS, or `silent`. It never logs audio, task text, results or what was said.
 
 ## Change the settings
@@ -224,3 +230,12 @@ adb shell am instrument -w -e voiceAcoustic true -e screenOff true \
 ```
 
 This uses the real phone microphone and loudspeaker. It is separate from human speech at 1–3 metres; see the [Hermes voice checks](hardware-validation.md#oneplus-8t-hermes-voice-checks).
+
+To qualify Live task teardown against the phone's configured, paired host:
+
+```bash
+devenv shell -- python android/tools/live_task_lifecycle.py
+adb logcat -d -s HermesLifecycleTest HermesCall
+```
+
+Run this on the paired Hermes host, with the debug and test APKs installed as above. This opt-in check spends subscription allowance and asks Hermes to run four read-only terminal tasks, each sleeping for 20 seconds before reporting a unique marker and hostname. It uses real WebRTC and the production Android controller/transport, with scripted delegation events at the media interface. It checks hang-up, Microphone off, gadget reconnection and a scripted media failure, audio release, busy admission in fresh calls and absence of old result injection or gadget playback. The host companion opens `state.db` read-only and signals completion through a temporary Android debug property only after finding the real terminal result and final answer. Set `HERMES_HOME` for a different Hermes profile. The check restores the ordinary service core and microphone preference afterwards and clears the debug property. This is separate from a person speaking and hearing native voice feedback.

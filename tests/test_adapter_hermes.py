@@ -662,6 +662,55 @@ def test_voice_tasks_check_current_authorization_and_report_gateway_failure(call
         phone.close()
 
 
+def test_duplicate_completion_cannot_end_a_new_voice_task(calling_gadget, loop_thread):
+    import asyncio
+    import threading
+
+    from gateway.platforms.base import ProcessingOutcome
+    from test_hub_calls import Device, ScriptedBroker
+
+    gadget = calling_gadget(ScriptedBroker())
+    events = []
+    entered, release = threading.Event(), threading.Event()
+
+    async def work(event):
+        events.append(event)
+        if len(events) == 2:
+            entered.set()
+            await asyncio.to_thread(release.wait, 20)
+        return "Task finished"
+
+    phone = Device(gadget.url)
+    try:
+        gadget.authorized.add(phone.device_id)
+        phone.expect("paired", timeout=8)
+        gadget.adapter.set_message_handler(work)
+        phone.send("call.start", id="c1", offer="offer-phone")
+        phone.expect("call.answer", id="c1")
+        phone.send("call.task", id="c1", delegation="first", text="First task")
+        first = phone.expect("call.task.status", delegation="first", state="accepted")
+        phone.expect("turn.end", turn=first["turn"])
+        phone.send("call.task", id="c1", delegation="second", text="Second task")
+        second = phone.expect("call.task.status", delegation="second", state="accepted")
+        assert entered.wait(5)
+
+        # An integration may repeat a lifecycle callback. It must not release the
+        # current task's slot or tell the device that its newer turn has ended.
+        loop_thread.run(gadget.adapter.on_processing_complete(events[0], ProcessingOutcome.SUCCESS))
+        phone.send("ping", ts=123)
+        phone.expect("pong", ts=123)
+        assert [m["turn"] for m in phone.received("turn.end")] == [first["turn"]]
+        phone.send("call.task", id="c1", delegation="waiting", text="Never queue this")
+        phone.expect("call.task.status", delegation="waiting", state="busy")
+        release.set()
+        phone.expect("call.task.status", delegation="second", state="completed")
+        phone.expect("turn.end", turn=second["turn"])
+        assert len(events) == 2
+    finally:
+        release.set()
+        phone.close()
+
+
 def test_a_missing_live_voice_plugin_turns_calls_off(calling_gadget, tmp_path):
     from test_hub_calls import Device
 
