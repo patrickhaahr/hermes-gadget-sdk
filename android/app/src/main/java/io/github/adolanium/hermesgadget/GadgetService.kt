@@ -24,6 +24,7 @@ object GadgetRuntime {
     @Volatile var core: GadgetCore? = null
     @Volatile var frameListener: (() -> Unit)? = null
     @Volatile var audioListener: ((AudioStatus) -> Unit)? = null
+    @Volatile var callListener: ((CallStatus) -> Unit)? = null
     @Volatile var stopReason: String? = null
     private var store: DeviceStore? = null
 
@@ -57,6 +58,15 @@ object GadgetRuntime {
     fun audioStatus(context: Context): AudioStatus = core?.audioStatus
         ?: AudioStatus(if (microphone(context).enabled) AudioState.WAKE_UNAVAILABLE else AudioState.MICROPHONE_OFF,
             problem = "the gadget is not running")
+
+    /** The Live call's state; without a running core there is no call. */
+    fun callStatus(): CallStatus = core?.callStatus ?: CallStatus(CallState.IDLE, unavailable = "the gadget is not running")
+
+    /** Start call, or End call when one is starting or running. */
+    fun toggleCall() {
+        val core = core ?: return
+        if (core.callStatus.state == CallState.IDLE) core.startCall() else core.endCall()
+    }
 
     /** Turns the microphone on or off, saving the choice first. */
     fun setMicrophoneEnabled(context: Context, enabled: Boolean) {
@@ -154,6 +164,9 @@ class GadgetService : Service() {
             onFrame = { GadgetRuntime.frameListener?.invoke() },
             onAudio = { status -> GadgetRuntime.audioListener?.invoke(status) },
             voiceMode = { GadgetRuntime.voiceMode(this) },
+            callMedia = WebRtcCalls(this),
+            cue = ReadyCue(),
+            onCall = { status -> GadgetRuntime.callListener?.invoke(status) },
             onStopped = { reason ->
                 GadgetRuntime.stopReason = reason
                 GadgetRuntime.frameListener?.invoke()

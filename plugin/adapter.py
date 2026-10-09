@@ -20,6 +20,9 @@ config.yaml::
           speak_replies: true    # auto-TTS for devices with a speaker
           auto_home: true        # first approved device becomes the gadget home channel
           unauthorized_dm_behavior: pair
+          live_calls: false      # paired phones may start subscription GPT-Live calls (needs
+                                 # the Hermes Live Voice plugin; see docs/android.md)
+          live_voice_plugin: ~/.hermes/plugins/talk-desktop   # where that plugin is installed
 
 Secrets (``~/.hermes/.env``): ``GADGET_ACCESS_TOKEN`` (optional shared token).
 """
@@ -29,11 +32,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import ssl
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from agent.i18n import t
@@ -51,7 +56,7 @@ from gateway.platforms.base import (
 from gateway.platforms.event import MessageEvent, MessageType
 
 from . import audio as gaudio
-from . import imaging, ota, runtime, textfmt
+from . import calls, imaging, ota, runtime, textfmt
 from .hub import DeviceHub, DeviceSession, HubDelegate
 from .store import DeviceStore
 
@@ -150,6 +155,8 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
         self._tls_cert = extra.get("tls_cert")
         self._tls_key = extra.get("tls_key")
         self._access_token = extra_or_secret(extra, "access_token", "GADGET_ACCESS_TOKEN") or None
+        self._live_calls = _flag(extra.get("live_calls"), False)
+        self._live_voice_plugin = extra.get("live_voice_plugin")
         self._hub: Optional[DeviceHub] = None
         self._store: Optional[DeviceStore] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -182,7 +189,7 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
         self._hub = DeviceHub(
             self._store, self, host=self._host, port=self._port, path=self._path,
             access_token=self._access_token, heartbeat_s=self._heartbeat_s, ssl_context=ssl_ctx,
-            max_utterance_s=self._max_utterance_s)
+            max_utterance_s=self._max_utterance_s, call_broker=self._call_broker())
         try:
             await self._hub.start()
         except OSError as exc:
@@ -200,6 +207,27 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
         logger.info("[%s] devices connect to %s://<this host>:%s%s", self.name,
                     "wss" if ssl_ctx else "ws", self._hub.bound_port, self._hub.path)
         return True
+
+    def _call_broker(self) -> Optional[calls.CallBroker]:
+        """The Live Voice broker when ``live_calls`` is on; without it, devices are told calls are unsupported."""
+        if not self._live_calls:
+            return None
+        if self._live_voice_plugin:
+            plugin_dir = Path(str(self._live_voice_plugin)).expanduser()
+        else:
+            try:
+                from hermes_constants import get_process_hermes_home
+                home = get_process_hermes_home()
+            except ImportError:
+                home = Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
+            plugin_dir = home / "plugins" / "talk-desktop"
+        try:
+            broker = calls.load_live_voice(plugin_dir)
+        except calls.CallError as exc:
+            logger.warning("[%s] live calls are off: %s", self.name, exc.message)
+            return None
+        logger.info("[%s] live calls enabled through %s", self.name, plugin_dir)
+        return broker
 
     async def disconnect(self) -> None:
         runtime.unregister(self._registry_key, self)
@@ -231,6 +259,12 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
     async def is_paired(self, session: DeviceSession) -> bool:
         # None means no runner check is installed (unit harness): nothing to gate on.
         return self._authorized(session.device_id) is not False
+
+    async def call_profile(self, session: DeviceSession) -> Optional[str]:
+        # A call spends the host's voice allowance: only an explicit, current approval admits it.
+        if self._authorized(session.device_id) is not True:
+            raise calls.CallError("not_paired", "this device is not paired with Hermes")
+        return getattr(self, "_owner_profile", None)
 
     async def on_ready(self, session: DeviceSession) -> None:
         if session.paired:

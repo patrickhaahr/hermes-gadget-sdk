@@ -22,7 +22,7 @@
     <string name="wake_microphone_off">Microphone off</string>
     <string name="wake_recording">Recording</string>
     <string name="wake_paused">Wake listening paused</string>
-    <string name="wake_handed_off">Microphone in use</string>
+    <string name="wake_handed_off">Live call</string>
     <string name="wake_unavailable">Wake listening unavailable</string>
     <string name="wake_toggle_off">Tap to turn the microphone off</string>
     <string name="wake_toggle_on">Tap to turn the microphone on</string>
@@ -31,6 +31,9 @@
     <string name="action_microphone_on">Turn the microphone on</string>
     <string name="voice_mode">Voice mode</string>
     <string name="voice_mode_hermes">Hermes voice</string>
-    <string name="voice_mode_live_unavailable">Live voice — available after the Live call integration</string>
+    <string name="voice_mode_live_unavailable">Live voice — a wake can\'t start a call yet; use Start call on the face</string>
+    <string name="call_start">Start call</string>
+    <string name="call_connecting">Connecting… tap to cancel</string>
+    <string name="call_end">End call</string>
     <string name="voice_mode_save_failed">Voice mode could not be saved. Try again.</string>
 </resources>

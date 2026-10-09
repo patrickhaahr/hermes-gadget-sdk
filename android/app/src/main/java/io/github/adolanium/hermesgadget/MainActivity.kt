@@ -13,13 +13,14 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 
 /**
- * The gadget's face, full screen, with the microphone's state over it. It is
- * also the home screen, so it comes back after a reboot. Hold volume-up for
- * three seconds to open the settings.
+ * The gadget's face, full screen, with the microphone's state and the Start
+ * call / End call control over it. It is also the home screen, so it comes back
+ * after a reboot. Hold volume-up for three seconds to open the settings.
  */
 class MainActivity : Activity() {
     private lateinit var face: FaceView
     private lateinit var listening: ListeningChip
+    private lateinit var call: CallButton
     private var backlight = -1
     private val openSettings = Runnable { startActivity(Intent(this, SetupActivity::class.java)) }
 
@@ -27,10 +28,13 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         face = FaceView(this)
         listening = ListeningChip(this) { enable -> GadgetRuntime.setMicrophoneEnabled(this, enable) }
+        call = CallButton(this) { GadgetRuntime.toggleCall() }
         setContentView(FrameLayout(this).apply {
             addView(face)
             addView(listening.chip)
             addView(listening.banner)
+            addView(call.note)
+            addView(call.button)
         })
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
@@ -49,8 +53,10 @@ class MainActivity : Activity() {
         Kiosk.enter(this)
         GadgetRuntime.frameListener = { face.post(::refresh) }
         GadgetRuntime.audioListener = { status -> face.post { listening.show(status) } }
-        // Detections while the face was hidden are old news.
+        GadgetRuntime.callListener = { status -> face.post { call.show(status) } }
+        // Detections and call outcomes while the face was hidden are old news.
         listening.show(GadgetRuntime.audioStatus(this), announce = false)
+        call.show(GadgetRuntime.callStatus(), announce = false)
         val missing = listOfNotNull(
             Manifest.permission.RECORD_AUDIO,
             if (Build.VERSION.SDK_INT >= 33) Manifest.permission.POST_NOTIFICATIONS else null,
@@ -65,6 +71,7 @@ class MainActivity : Activity() {
     override fun onPause() {
         GadgetRuntime.frameListener = null
         GadgetRuntime.audioListener = null
+        GadgetRuntime.callListener = null
         super.onPause()
     }
 

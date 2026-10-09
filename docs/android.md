@@ -4,7 +4,7 @@ The Android client turns a spare phone into a gadget. It runs the same device co
 
 This port is experimental. CI builds the app and runs the device core through the app's native bridge on the build machine. The [verification page](hardware-validation.md#oneplus-8t-wake-listening-report) records one physical phone report, for wake listening on a OnePlus 8T.
 
-Say "Hey Hermes" and your request, or hold the screen to talk. Hermes uses its configured speech recognition and text-to-speech to answer in the phone's gadget conversation. See [Wake listening](#wake-listening).
+Say "Hey Hermes" and your request, or hold the screen to talk. Hermes uses its configured speech recognition and text-to-speech to answer in the phone's gadget conversation. See [Wake listening](#wake-listening). If the host allows it, **Start call** opens a full-duplex voice call on the host's ChatGPT subscription; see [Live calls](#live-calls).
 
 ## What you need
 
@@ -83,6 +83,7 @@ The chip at the top of the screen shows who has the microphone:
 | **Wake listening paused** | The gadget is speaking. Listening resumes half a second after it stops, so its own voice can't wake it. |
 | **Microphone off** | Nothing uses the microphone. |
 | **Wake listening unavailable** | The microphone is on, but listening can't run. The settings screen says why. Hold-to-talk still works. |
+| **Live call** | A [Live call](#live-calls) has the microphone and speaker. |
 
 Only one of these uses the microphone at a time. Holding the screen takes the microphone from wake listening; letting go gives it back.
 
@@ -107,7 +108,7 @@ It records each detection with its score, changes of the microphone's owner, and
 The settings screen has **Voice mode**, next to the Microphone control:
 
 - **Hermes voice** is the default: a wake records one request for Hermes's configured STT/TTS.
-- **Live voice** is shown disabled until the subscription Live call integration is available. It cannot be selected, including over adb, and never silently falls back to Hermes voice.
+- **Live voice** will make a wake start a [Live call](#live-calls). A wake can't start a call yet, so the option stays disabled. It can't be selected, including over adb, and never silently falls back to Hermes voice. Use **Start call** for a call in either mode.
 
 The setting is saved before taking effect and survives app restarts, reboots and updates. Hold-to-talk is available in both modes. On a dedicated phone:
 
@@ -117,6 +118,40 @@ adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es voice_mode
 
 Using `--es voice_mode live` reports that Live voice is unavailable and leaves the saved choice unchanged.
 
+## Live calls
+
+**Start call** opens a full-duplex voice call with the GPT-Live voice model on the Hermes host's ChatGPT/Codex subscription. Talk and listen without holding anything. The phone needs no OpenAI key, dashboard login or other account: the call uses the gadget pairing, and the host's own Codex login pays for it. A call spends the subscription's voice allowance.
+
+On the host, a call needs:
+
+- The [Hermes Live Voice](https://github.com/Synero/hermes-live-voice) plugin (`talk-desktop`) installed, at a version with device calls (`start_call` in `dashboard/plugin_api.py`). For now only [patrickhaahr/hermes-live-voice](https://github.com/patrickhaahr/hermes-live-voice) has them. [Its README](https://github.com/Synero/hermes-live-voice#readme) covers installation.
+- Codex signed in as the user the Hermes gateway runs as (`codex login`), with codex-cli 0.160.0 or newer. Older versions can't enforce the voice thread's restrictions, and calls are refused.
+- `live_calls: true` in the gadget platform's settings, then a gateway restart:
+
+  ```yaml
+  platforms:
+    gadget:
+      extra:
+        live_calls: true
+        # live_voice_plugin: /path/to/talk-desktop   # if it isn't in ~/.hermes/plugins
+  ```
+
+  The gateway log then says `live calls enabled through …`, or why not. Calls are off by default because they spend the subscription's allowance.
+
+To call:
+
+1. Tap **Start call** at the bottom of the face. The button appears only while the phone is connected and paired and the host offers calls. Over adb: `adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es call start`.
+2. Wait for the ready cue, two rising tones, then speak. The button shows **Connecting…** until then; tap it to give up.
+3. Tap **End call** to hang up (`--es call end`). The gadget stays connected, and wake listening resumes half a second later.
+
+The call takes the microphone and speaker from wake listening and the gadget. Wake listening stops and throws away what it heard, so nothing from before **Start call** is sent. Hold-to-talk records nothing during a call, and the gadget's spoken replies are silenced. The call's audio goes directly between the phone and the voice service over WebRTC, without passing through Hermes. The gateway only exchanges the connection details, over the gadget connection, so a phone that reaches the host over the LAN or Tailscale can call either way. The phone itself also needs internet access, because the call's audio goes to OpenAI. The phone uses Android's voice-communication microphone, with the phone's echo canceller and noise suppressor where it has them, plus WebRTC's own audio processing. It plays the call on the loudspeaker. How well that cancels the loudspeaker on a given phone is a measurement, not a setting; see the [8T report](hardware-validation.md#oneplus-8t-live-call-checks).
+
+A call ends with **End call**, **Microphone off**, a lost connection to Hermes, or unpairing the phone. A call that isn't ready 20 seconds after **Start call** fails. A failed or dropped call says why above the button and returns to wake listening. Nothing reconnects or retries on its own; tap **Start call** again. Each call starts with fresh spoken context. The phone's calls are independent of Hermes Desktop's Live Voice calls: the gateway runs its own copy of the plugin's call broker, so starting or ending one never touches the other.
+
+Hermes tasks can't be requested from a call yet. When the voice tries to hand one over, it is told to say so. Use hold-to-talk or "Hey Hermes" in Hermes voice mode for tasks. A wake doesn't start a call yet either.
+
+`adb logcat -s HermesCall` follows a call: startup, the time to the ready cue, the connection state, how many bytes went each way every 10 seconds, and the length of each spoken turn. It never logs audio or what was said.
+
 ## Change the settings
 
 Hold **volume up** for about three seconds on the gadget screen to open the settings, or run:
@@ -125,7 +160,7 @@ Hold **volume up** for about three seconds on the gadget screen to open the sett
 adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup
 ```
 
-The settings screen also opens Android's developer options with **Open Android settings**, even in kiosk mode, and warns when a screen lock would stop the gadget from starting after a reboot. It has the **Turn the microphone off** control. For troubleshooting, it shows the core's live status (phase, pairing, and server), the microphone's owner, the number of wake detections, and why wake listening is unavailable, if it is.
+The settings screen also opens Android's developer options with **Open Android settings**, even in kiosk mode, and warns when a screen lock would stop the gadget from starting after a reboot. It has the **Turn the microphone off** control. For troubleshooting, it shows the core's live status (phase, pairing, and server), the microphone's owner, the number of wake detections, why wake listening is unavailable, if it is, and the Live call's state with its last outcome and time to ready.
 
 The device key stays in the app's private storage and is excluded from backups and device transfers. Uninstalling the app or clearing its data creates a new device, which must be paired again. Run `hermes gadget forget <device_id>` on the host for the old one.
 
@@ -148,6 +183,8 @@ cd android
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+`adb install -r` keeps the app's data only when the new APK is signed with the same key as the installed one. Debug builds use `debug.keystore` in `$ANDROID_USER_HOME` (by default `~/.android`), so build an update with the same keystore as the installed app. Otherwise the install fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`; uninstalling instead deletes the device key and the device-owner setup.
+
 The build downloads the three wake models from their pinned releases and checks their SHA-256 hashes, so the first build needs network access. They aren't in the repository because openWakeWord's models are licensed for non-commercial use; see [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md#wake-word-models).
 
 The unit tests also build the app's native bridge for your computer, so they need CMake and a C++17 compiler. They drive the device core through the protocol handshake, replies, speaker audio, and microphone ownership. The wake tests run the real models through the TensorFlow Lite C library from the pinned pyopen-wakeword wheel, which they download. That library exists for Linux x86-64 only; on other machines those tests are skipped. The coordinator tests also check exact uploaded PCM, local discards, refusals, ownership and re-arming through the real core. The tests check the recorded speech in `app/src/wakeFixtures` against the reference engine's scores for it. `android/tools/wake_fixtures.py` regenerates both.
@@ -166,7 +203,8 @@ Don't use `./gradlew connectedAndroidTest` on a configured gadget. It uninstalls
 
 ## Limits
 
-- Subscription Live voice calls and camera support are not included yet.
+- Live calls can't run Hermes tasks, start from a wake, or end on a spoken "Goodbye Hermes" or after a silence yet. Their echo cancellation on the loudspeaker isn't qualified yet. Camera support is not included.
+- The APK carries native WebRTC for Live calls, which makes it about 23 MB larger.
 - Wake listening knows only "Hey Hermes", with English pronunciation. Its accuracy is measured on one phone, one speaker, and one room. The APK includes the wake models, which are licensed for non-commercial use only.
 - The display is the core's renderer at 360 pixels wide, scaled up with square pixels. The app runs in portrait.
 - Android delivers no updates over the gadget connection. Install new versions with `adb install -r`.

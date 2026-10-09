@@ -37,6 +37,13 @@ Kotlin contributors) and LiteRT 1.4.2 (Apache License 2.0, Google AI Edge
 Authors), fetched by Gradle at build time. The Apache 2.0 text is in
 LICENSES/Apache-2.0.txt. No source of theirs is copied into this repository.
 
+For Live calls the APK also includes Stream WebRTC Android 1.3.10 (Apache
+License 2.0, Stream.IO, Inc.), a build of WebRTC (Copyright (c) 2011, The WebRTC
+project authors; BSD 3-Clause license with an additional patent grant, whose
+texts are in LICENSES/WebRTC-BSD-3-Clause.txt) and of the third-party libraries
+WebRTC compiles in, under their own permissive licenses. It is fetched by
+Gradle at build time; no source of it is copied into this repository.
+
 The APK also includes three wake word models, downloaded at build time at
 pinned SHA-256 hashes and not stored in this repository:
 melspectrogram.tflite and embedding_model.tflite from openWakeWord v0.5.1

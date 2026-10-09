@@ -75,7 +75,11 @@ kotlin {
 dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.ai.edge.litert:litert:1.4.2")
+    // Native WebRTC for Live calls: Google's libwebrtc, packaged by Stream (see THIRD_PARTY_NOTICES.md).
+    implementation("io.getstream:stream-webrtc-android:1.3.10")
     testImplementation("junit:junit:4.13.2")
+    // Android's org.json is a stub in host tests; this is the reference implementation.
+    testImplementation("org.json:json:20250517")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

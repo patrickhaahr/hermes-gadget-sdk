@@ -93,6 +93,8 @@ If authentication fails, the server sends `{"type": "error", "code": "auth_faile
 
 `paired` reports whether Hermes will accept messages from this device. Authorization is enforced by Hermes itself on every message; the flag only drives the device UI.
 
+A server that offers [Live calls](#live-calls) adds `"calls": ["live"]`. Devices that don't call ignore it.
+
 ### Pairing
 
 | Message | Direction | Meaning |
@@ -230,6 +232,24 @@ mac = HMAC-SHA256(key, "hermes-gadget/v1|ota|" + device_id + "|" + nonce + "|" +
 - `proto` is a single integer, and a server rejects versions it does not speak.
 - Adding optional fields or new message types does not change the version. Receivers ignore unknown types and fields.
 - Changing the meaning of an existing field does.
+
+### Live calls
+
+A device can ask for a voice call with the GPT-Live model on the Hermes host's ChatGPT/Codex subscription. The device makes the WebRTC offer, and the call's audio then flows between the device and the voice service directly. Only this signaling crosses the gadget connection. The Android client sends these messages itself; the device core ignores them. A server offers calls when its `welcome` lists `"live"` in `calls` (plugin setting `live_calls`; see [Android](android.md#live-calls)).
+
+| Message | Direction | Meaning |
+|---|---|---|
+| `{"type": "call.start", "id": "call-1", "offer": "v=0...", "language": "en"}` | device → server | Start a call. `offer` is the SDP offer: one audio track and an `oai-events` data channel. `language` is `en` (the default) or `da` |
+| `{"type": "call.answer", "id": "call-1", "answer": "v=0..."}` | server → device | The voice service's SDP answer. The call is usable once the data channel reports `session.started` |
+| `{"type": "call.error", "id": "call-1", "code": "not_paired", "message": "..."}` | server → device | The call didn't start, and nothing is left running |
+| `{"type": "call.stop", "id": "call-1"}` | device → server | Hang up, during startup or after |
+| `{"type": "call.ended", "id": "call-1", "reason": "hangup"}` | server → device | The call is over: `hangup` (the answer to `call.stop`), `unpaired`, or `not_found` (no call of this device has that id) |
+
+- The server decides who may call on every `call.start`: the device must be currently paired, not just enrolled. The call runs in the profile the gadget platform serves. Identity or profile fields in the message are ignored.
+- A device has at most one call. Calls of different devices, and Hermes Desktop's Live Voice calls, are independent: starting, failing or ending one never affects another.
+- A call ends when the device hangs up, disconnects or is unpaired. An answer that arrives after that is hung up on the server and never sent.
+- Error codes: `bad_request`, `busy` (this device already has a call), `not_paired`, `unsupported` (the host doesn't offer calls), and the voice service's own codes, such as `live_timeout`, `live_start_failed`, `live_unsupported` (the host's codex-cli is too old to restrict the call's thread), `live_unsafe` and `live_sin_quota` (the subscription's limit). A failed call isn't retried, and no other voice lane is substituted.
+- The server gives up on a start after about 25 seconds; the Android client gives up after 20 and sends `call.stop`.
 
 ### Android wake requests
 
