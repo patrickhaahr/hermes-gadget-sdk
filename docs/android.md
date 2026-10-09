@@ -144,13 +144,15 @@ To call:
 2. Wait for the ready cue, two rising tones, then speak. The button shows **Connecting…** until then; tap it to give up.
 3. Tap **End call** to hang up (`--es call end`). The gadget stays connected, and wake listening resumes half a second later.
 
-The call takes the microphone and speaker from wake listening and the gadget. Wake listening stops and throws away what it heard, so nothing from before **Start call** is sent. Hold-to-talk records nothing during a call, and the gadget's spoken replies are silenced. The call's audio goes directly between the phone and the voice service over WebRTC, without passing through Hermes. The gateway only exchanges the connection details, over the gadget connection, so a phone that reaches the host over the LAN or Tailscale can call either way. The phone itself also needs internet access, because the call's audio goes to OpenAI. The phone uses Android's voice-communication microphone, with the phone's echo canceller and noise suppressor where it has them, plus WebRTC's own audio processing. It plays the call on the loudspeaker. How well that cancels the loudspeaker on a given phone is a measurement, not a setting; see the [8T report](hardware-validation.md#oneplus-8t-live-call-checks).
+The call takes the microphone and speaker from wake listening and the gadget. Wake listening stops and throws away what it heard, so nothing from before **Start call** is sent. Hold-to-talk records nothing during a call, and the gadget's spoken replies are silenced. The call's audio goes directly between the phone and the voice service over WebRTC, without passing through Hermes. The gateway only exchanges the connection details, over the gadget connection, so a phone that reaches the host over the LAN or Tailscale can call either way. The phone itself also needs internet access, because the call's audio goes to OpenAI. The phone uses Android's voice-communication microphone and plays the call on the loudspeaker. Where the phone has its own echo canceller and noise suppressor, the call uses them and WebRTC turns off its software ones; WebRTC's gain control and high-pass filter stay on. The ready cue plays outside WebRTC, so only the phone's own echo canceller keeps it out of the call. How well the loudspeaker is cancelled on a given phone is a measurement, not a setting. On the 8T, its own speech and the ready cue didn't reach the voice service, and speaking over the voice interrupted it; see the [echo report](hardware-validation.md#oneplus-8t-echo-and-interruption-checks).
+
+To interrupt the voice, talk over it. The voice service decides when you are interrupting and stops; on the 8T that took 0.7–2.8 seconds. Words spoken over the voice are sometimes lost, so if it asks what you said, say it again. The phone has no interrupt control of its own.
 
 A call ends with **End call**, **Microphone off**, a lost connection to Hermes, or unpairing the phone. A call that isn't ready 20 seconds after **Start call** fails. A failed or dropped call says why above the button and returns to wake listening. Nothing reconnects or retries on its own; tap **Start call** again. Each call starts with fresh spoken context. The phone's calls are independent of Hermes Desktop's Live Voice calls: the gateway runs its own copy of the plugin's call broker, so starting or ending one never touches the other.
 
 Hermes tasks can't be requested from a call yet. When the voice tries to hand one over, it is told to say so. Use hold-to-talk or "Hey Hermes" in Hermes voice mode for tasks. A wake doesn't start a call yet either.
 
-`adb logcat -s HermesCall` follows a call: startup, the time to the ready cue, the connection state, how many bytes went each way every 10 seconds, and the length of each spoken turn. It never logs audio or what was said.
+`adb logcat -s HermesCall` follows a call: startup, whose echo canceller and noise suppressor it uses, the time to the ready cue, the connection state, and the length of each spoken turn. Every 10 seconds it logs how many bytes went each way and the loudest microphone sample after the phone's audio processing, in dBFS, or `silent`. It never logs audio or what was said.
 
 ## Change the settings
 
@@ -203,7 +205,7 @@ Don't use `./gradlew connectedAndroidTest` on a configured gadget. It uninstalls
 
 ## Limits
 
-- Live calls can't run Hermes tasks, start from a wake, or end on a spoken "Goodbye Hermes" or after a silence yet. Their echo cancellation on the loudspeaker isn't qualified yet. Camera support is not included.
+- Live calls can't run Hermes tasks, start from a wake, or end on a spoken "Goodbye Hermes" or after a silence yet. Loudspeaker echo and interruption have been checked on the 8T at 1 m in a quiet room, with the phone flat and volume at maximum; other placements and conditions remain untested. Camera support is not included.
 - The APK carries native WebRTC for Live calls, which makes it about 23 MB larger.
 - Wake listening knows only "Hey Hermes", with English pronunciation. Its accuracy is measured on one phone, one speaker, and one room. The APK includes the wake models, which are licensed for non-commercial use only.
 - The display is the core's renderer at 360 pixels wide, scaled up with square pixels. The app runs in portrait.

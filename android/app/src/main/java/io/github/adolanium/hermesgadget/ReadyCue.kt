@@ -10,6 +10,8 @@ import kotlin.math.sin
 /**
  * The ready cue: two rising tones, about a quarter of a second, played on the
  * call's audio path (voice communication) so it comes out where the call does.
+ * It plays outside WebRTC, so only the phone's own echo canceller can keep it out
+ * of the microphone; on the OnePlus 8T it does (docs/hardware-validation.md).
  */
 class ReadyCue : Cue {
     private var track: AudioTrack? = null
