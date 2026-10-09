@@ -63,6 +63,7 @@ class LiveCallTest {
         val answers = mutableListOf<String>()
         val responses = mutableListOf<Pair<String, String>>()
         var closed = false
+        var closeDelayMs = 0L
 
         override fun createOffer() {
             check(capture.sink == null) { "the call's microphone opened while wake listening still had it" }
@@ -75,6 +76,7 @@ class LiveCallTest {
         }
 
         override fun close() {
+            clock += closeDelayMs
             closed = true
         }
 
@@ -142,6 +144,7 @@ class LiveCallTest {
     private val media = mutableListOf<FakeMedia>()
     private val statuses = mutableListOf<CallStatus>()
     private var binary = 0
+    private var voiceMode = VoiceMode.HERMES
     private var clock = 0L
     private var handle = 0L
     private lateinit var audio: AudioCoordinator
@@ -153,7 +156,9 @@ class LiveCallTest {
         audio = AudioCoordinator(capture, playback, WakeListener(queueChunks = 1000) { WakeDetector(models) }, setting, queue::add,
             toCore = { samples -> NativeCore.micSamples(handle, samples, samples.size) }, onStatus = {},
             startRequest = { NativeCore.startWakeRequest(handle).decodeToString() },
-            discardRequest = { NativeCore.discardWakeRequest(handle) })
+            discardRequest = { NativeCore.discardWakeRequest(handle) },
+            voiceMode = { voiceMode },
+            startLiveCall = { call.start(); call.status.feedback ?: "Starting Live call" })
         call = LiveCall(audio, { events -> FakeMedia(events).also { media += it } }, cue, sent::add, queue::add, { clock },
             onStatus = { statuses += it })
         handle = NativeCore.create(host, 360, 800, hasMic = true, hasSpeaker = true, micRate = 16000,
@@ -206,6 +211,9 @@ class LiveCallTest {
         assertEquals(AudioState.WAKE_LISTENING, audio.status.state)
     }
 
+    private fun delegation(id: String, text: String) = JSONObject().put("type", "delegation.created")
+        .put("item", JSONObject().put("id", id).put("content", org.json.JSONArray().put(JSONObject().put("text", text)))).toString()
+
     private fun frames(type: String) = sent.filter { "\"type\":\"$type\"" in it }.map(::JSONObject)
 
     private fun talk(pressed: Boolean) {
@@ -224,14 +232,219 @@ class LiveCallTest {
         return id to m
     }
 
+    private fun wake() {
+        val before = audio.status.detections
+        assertTrue(capture.hear(HostFixtures.pcm(WakeFixtures.UNRELATED) + HostFixtures.pcm(WakeFixtures.POSITIVE_LJSPEECH)))
+        val deadline = System.currentTimeMillis() + 20_000
+        while (audio.status.detections == before && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10)
+            pump()
+        }
+        assertEquals(before + 1, audio.status.detections)
+    }
+
+    @Test
+    fun repeatedWakesUseTheCallPathAndRearmAfterHangupOrFailureWithoutUploadingPreroll() {
+        online()
+        voiceMode = VoiceMode.LIVE
+        server("""{"type":"prompt","id":"p1","title":"Allow command?","text":"test command"}""")
+        for (ending in listOf("goodbye", "startup failure", "button with task")) {
+            wake()
+            assertEquals(CallState.STARTING, call.status.state)
+            assertEquals(AudioState.HANDED_OFF, audio.status.state)
+            assertNull(capture.sink)
+            assertEquals(0, binary)
+            assertEquals(0, frames("audio.start").size)
+            assertEquals("wake never approves a command", 0, frames("prompt.reply").size)
+            val m = media.last()
+            m.events.offer("v=0 offer")
+            pump()
+            val id = frames("call.start").last().getString("id")
+            assertEquals("en", frames("call.start").last().getString("language"))
+            if (ending == "startup failure") {
+                server("""{"type":"call.error","id":"$id","message":"test startup failure"}""")
+                m.events.message("""{"type":"session.started"}""") // late startup cannot resurrect it
+                pump()
+            } else {
+                server("""{"type":"call.answer","id":"$id","answer":"v=0 answer"}""")
+                m.events.message("""{"type":"session.started"}""")
+                pump()
+                assertEquals(CallState.ACTIVE, call.status.state)
+                if (ending == "goodbye") {
+                    transcript(m, "Goodbye Hermes.")
+                    run(3500)
+                } else {
+                    m.events.message(delegation("d1", "Check the timer"))
+                    pump()
+                    server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"accepted","turn":"t1"}""")
+                    call.end()
+                    server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"completed","turn":"t1","text":"Old result"}""")
+                    assertTrue(m.responses.isEmpty())
+                }
+            }
+            assertTrue(m.closed)
+            assertEquals(CallState.IDLE, call.status.state)
+            assertNull("rearm waits for media and cue teardown", capture.sink)
+            run(600)
+            assertEquals(AudioState.WAKE_LISTENING, audio.status.state)
+            run(1000)
+        }
+        assertEquals(3, frames("call.start").size)
+        assertEquals(2, cue.plays)
+        assertEquals(0, frames("cancel").size)
+        assertEquals(0, binary)
+    }
+
+    @Test
+    fun unavailableLiveWakeNeverFallsBackAndHermesModeStillRecordsARequest() {
+        online(calls = false)
+        voiceMode = VoiceMode.LIVE
+        wake()
+        assertEquals("This Hermes host does not offer Live calls", call.status.feedback)
+        assertEquals(AudioState.WAKE_LISTENING, audio.status.state)
+        assertTrue(media.isEmpty())
+        assertEquals(0, frames("audio.start").size)
+        voiceMode = VoiceMode.HERMES
+        wake()
+        assertEquals(AudioState.GADGET_CAPTURE, audio.status.state)
+        assertTrue(media.isEmpty())
+        assertEquals(0, binary)
+        call.setMicrophoneEnabled(false)
+        run(1000)
+        assertNull(capture.sink)
+        assertEquals(AudioState.MICROPHONE_OFF, audio.status.state)
+    }
+
+    private fun transcript(media: FakeMedia, text: String, role: String = "user", delta: Boolean = true) {
+        val event = if (delta) JSONObject().put("type", if (role == "user") "input_transcript.added" else "output_transcript.added")
+            .put("item", JSONObject().put("text", text))
+        else JSONObject().put("type", "turn.done").put("turn", JSONObject().put("role", role).put("transcript", text))
+        media.events.message(event.toString())
+        pump()
+    }
+
+    @Test
+    fun goodbyeWaitsForTheWholeUserUtteranceAndDoesNotNeedTurnDone() {
+        online()
+        val (id, m) = answeredCall()
+        m.events.message("""{"type":"session.started"}""")
+        pump()
+        for ((role, text) in listOf(
+            "assistant" to "Goodbye Hermes.",
+            "user" to "Say goodbye Hermes to the visitor.",
+            "user" to "The phrase is \"Goodbye Hermes\".",
+            "user" to "\"Goodbye Hermes\"",
+        )) {
+            transcript(m, text, role)
+            run(4000)
+            assertEquals("$role: $text", CallState.ACTIVE, call.status.state)
+        }
+        transcript(m, "Goodbye Hermes")
+        run(500)
+        transcript(m, ", what does that phrase mean?")
+        run(4000)
+        assertEquals(CallState.ACTIVE, call.status.state)
+
+        transcript(m, "Good")
+        run(100)
+        transcript(m, "bye")
+        transcript(m, "Goodbye", delta = false) // partial bookkeeping must not replace the deltas
+        transcript(m, " ")
+        transcript(m, "Hermes!")
+        run(1000)
+        assertEquals(CallState.ACTIVE, call.status.state)
+        run(3000)
+        assertEquals(CallState.IDLE, call.status.state)
+        assertEquals("Call ended", call.status.feedback)
+        assertTrue(m.closed)
+        assertEquals(id, frames("call.stop").single().getString("id"))
+        assertEquals(AudioState.WAKE_LISTENING, audio.status.state)
+        assertEquals(0, frames("cancel").size)
+    }
+
+    @Test
+    fun aFinalUserTranscriptCanEndTheCallAndStaleSpeechCannotEndTheNextOne() {
+        online()
+        val (_, old) = answeredCall()
+        old.events.message("""{"type":"session.started"}""")
+        pump()
+        transcript(old, "GOODBYE, HERMES.", delta = false)
+        run(4000)
+        assertEquals(CallState.IDLE, call.status.state)
+        val (_, next) = answeredCall()
+        next.events.message("""{"type":"session.started"}""")
+        pump()
+        transcript(old, "Goodbye Hermes.")
+        run(4000)
+        assertEquals(CallState.ACTIVE, call.status.state)
+        assertFalse(next.closed)
+    }
+
+    @Test
+    fun idleStartsAtReadinessAndBothSpeakersKeepTheCallAlive() {
+        online()
+        val (id, m) = answeredCall()
+        run(15_000)
+        m.events.message("""{"type":"session.started"}""")
+        pump()
+        run(59_000)
+        assertEquals(CallState.ACTIVE, call.status.state)
+        transcript(m, "Still here")
+        run(59_000)
+        assertEquals(CallState.ACTIVE, call.status.state)
+        transcript(m, "So am I", "assistant")
+        run(59_000)
+        assertEquals(CallState.ACTIVE, call.status.state)
+        run(1000)
+        assertEquals(CallState.IDLE, call.status.state)
+        assertEquals("Call ended after 60 seconds without speech", call.status.feedback)
+        assertTrue(m.closed)
+        assertEquals(id, frames("call.stop").single().getString("id"))
+        run(600)
+        assertEquals(AudioState.WAKE_LISTENING, audio.status.state)
+    }
+
+    @Test
+    fun pendingWorkPausesIdleUntilCompletionButGoodbyeCanStillHangUp() {
+        online()
+        for (explicit in listOf(false, true)) {
+            val (id, m) = answeredCall()
+            m.events.message("""{"type":"session.started"}""")
+            pump()
+            m.events.message(delegation("d1", "Check the timer"))
+            pump()
+            run(61_000) // even before acceptance, the request is unresolved
+            assertEquals(CallState.ACTIVE, call.status.state)
+            server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"accepted","turn":"$id:task"}""")
+            run(61_000)
+            assertEquals(CallState.ACTIVE, call.status.state)
+            if (explicit) {
+                transcript(m, "Goodbye Hermes.")
+                run(4000)
+                server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"completed","turn":"$id:task","text":"Old result"}""")
+                assertTrue(m.responses.isEmpty())
+            } else {
+                server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"completed","turn":"$id:task","text":"The timer is ready"}""")
+                run(59_000)
+                assertEquals("completion gives the voice time to speak", CallState.ACTIVE, call.status.state)
+                run(1000)
+            }
+            assertEquals(CallState.IDLE, call.status.state)
+            assertTrue(m.closed)
+            run(600)
+        }
+        assertEquals(0, frames("cancel").size)
+        assertEquals(0, frames("session.new").size)
+    }
+
     @Test
     fun aDelegationUsesTheGadgetConnectionAndOnlyItsFinalResultIsSpokenOnce() {
         online()
         val (id, m) = answeredCall()
-        m.events.ready()
+        m.events.message("""{"type":"session.started"}""")
         pump()
-        m.events.delegation("d1", "Check the timer")
-        m.events.delegation("d1", "Check the timer")
+        m.events.message(delegation("d1", "Check the timer"))
+        m.events.message(delegation("d1", "Check the timer"))
         pump()
         val request = frames("call.task").single()
         assertEquals(id, request.getString("id"))
@@ -257,9 +470,9 @@ class LiveCallTest {
         for (teardown in listOf("hangup", "microphone off", "media failure", "transport loss")) {
             val before = frames("call.task").size
             val (id, m) = answeredCall()
-            m.events.ready()
+            m.events.message("""{"type":"session.started"}""")
             pump()
-            m.events.delegation("d1", "Check the timer")
+            m.events.message(delegation("d1", "Check the timer"))
             pump()
             server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"accepted","turn":"$id:task"}""")
             assertTrue(m.responses.isEmpty())
@@ -285,13 +498,13 @@ class LiveCallTest {
             }
             if (teardown == "transport loss") online()
             val (newId, next) = answeredCall()
-            next.events.ready()
+            next.events.message("""{"type":"session.started"}""")
             pump()
             // The new voice session can reuse an item id. Old acknowledgments,
             // duplicate completions and delayed native events still belong to m.
-            next.events.delegation("d1", "Another task")
+            next.events.message(delegation("d1", "Another task"))
             pump()
-            m.events.delegation("late", "Never submit this")
+            m.events.message(delegation("late", "Never submit this"))
             server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"accepted","turn":"$id:task"}""")
             repeat(2) {
                 server("""{"type":"call.task.status","id":"$id","delegation":"d1","state":"completed","turn":"$id:task","text":"Old result"}""")
@@ -311,10 +524,39 @@ class LiveCallTest {
     }
 
     @Test
+    fun aTaskOutlivingItsCallAlsoPausesANewCallsIdleTimer() {
+        online()
+        val (oldId, old) = answeredCall()
+        old.events.message("""{"type":"session.started"}""")
+        pump()
+        old.events.message(delegation("d1", "Check the timer"))
+        pump()
+        server("""{"type":"call.task.status","id":"$oldId","delegation":"d1","state":"accepted","turn":"old-task"}""")
+        call.end()
+        run(600)
+        val (_, next) = answeredCall()
+        next.events.message("""{"type":"session.started"}""")
+        pump()
+        run(61_000)
+        assertEquals("the older task is still running", CallState.ACTIVE, call.status.state)
+        server("""{"type":"turn.end","turn":"unrelated-task"}""")
+        run(61_000)
+        assertEquals(CallState.ACTIVE, call.status.state)
+        server("""{"type":"call.task.status","id":"$oldId","delegation":"d1","state":"completed","turn":"old-task","text":"Old result"}""")
+        server("""{"type":"turn.end","turn":"old-task"}""")
+        assertTrue(next.responses.isEmpty())
+        run(59_000)
+        assertEquals(CallState.ACTIVE, call.status.state)
+        run(1000)
+        assertEquals(CallState.IDLE, call.status.state)
+        assertTrue(next.closed)
+    }
+
+    @Test
     fun anOnScreenApprovalCanBeAnsweredWhileTheCallOwnsTheMicrophone() {
         online()
         val (_, m) = answeredCall()
-        m.events.ready()
+        m.events.message("""{"type":"session.started"}""")
         pump()
         server("""{"type":"prompt","id":"p1","title":"Allow command?","text":"test command"}""")
         run(700)
@@ -332,9 +574,9 @@ class LiveCallTest {
     fun anOlderHostCanConverseButGetsNoTaskSubmission() {
         online(tasks = false)
         val (_, m) = answeredCall()
-        m.events.ready()
+        m.events.message("""{"type":"session.started"}""")
         pump()
-        m.events.delegation("d1", "Check the timer")
+        m.events.message(delegation("d1", "Check the timer"))
         pump()
         assertTrue(frames("call.task").isEmpty())
         assertTrue(m.responses.single().second.contains("update the gadget plugin"))
@@ -374,7 +616,7 @@ class LiveCallTest {
         assertEquals(CallState.STARTING, call.status.state)
 
         run(1500)
-        m.events.ready()
+        m.events.message("""{"type":"session.started"}""")
         pump()
         assertEquals(1, cue.plays)
         assertEquals(CallState.ACTIVE, call.status.state)
@@ -386,7 +628,7 @@ class LiveCallTest {
     fun endCallReleasesTheCallButKeepsTheGadget() {
         online()
         val (id, m) = answeredCall()
-        m.events.ready()
+        m.events.message("""{"type":"session.started"}""")
         pump()
 
         // While the call has the audio, the gadget neither records nor speaks.
@@ -397,6 +639,7 @@ class LiveCallTest {
         server("""{"type":"audio.start","stream":7,"rate":24000,"format":"pcm16"}""")
         assertFalse(playback.playing)
 
+        m.closeDelayMs = 750 // WebRTC teardown can block longer than the rearm tail
         call.end()
         assertEquals(id, frames("call.stop").single().getString("id"))
         assertTrue(m.closed)
@@ -405,7 +648,9 @@ class LiveCallTest {
         assertEquals("Call ended", call.status.feedback)
         assertNull("no call is available to stop twice", call.status.unavailable)
 
-        run(AudioCoordinator.PLAYBACK_TAIL_MS.toInt() + 20)
+        run(400)
+        assertNull("the full tail starts after slow media teardown", capture.sink)
+        run(120)
         assertEquals("wake listening resumed", AudioState.WAKE_LISTENING, audio.status.state)
         server("""{"type":"call.ended","id":"$id","reason":"hangup"}""")
         talk(true)
@@ -431,7 +676,7 @@ class LiveCallTest {
         assertTrue(m.closed)
 
         server("""{"type":"call.answer","id":"$id","answer":"v=0 late"}""")
-        m.events.ready()
+        m.events.message("""{"type":"session.started"}""")
         pump()
         assertEquals(emptyList<String>(), m.answers)
         assertEquals(0, cue.plays)
@@ -458,7 +703,7 @@ class LiveCallTest {
     fun aDroppedCallHangsUpAndWaitsForTheNextStartCall() {
         online()
         val (id, m) = answeredCall()
-        m.events.ready()
+        m.events.message("""{"type":"session.started"}""")
         pump()
         m.events.failed("the connection to the voice service failed")
         pump()
@@ -477,7 +722,7 @@ class LiveCallTest {
         run(AudioCoordinator.PLAYBACK_TAIL_MS.toInt() + 20)
         call.start()
         first.events.offer("v=0 stale")
-        first.events.ready()
+        first.events.message("""{"type":"session.started"}""")
         first.events.failed("stale")
         pump()
         assertEquals(CallState.STARTING, call.status.state)
@@ -527,7 +772,7 @@ class LiveCallTest {
     fun microphoneOffEndsTheCallAndKeepsWakeListeningOff() {
         online()
         val (id, m) = answeredCall()
-        m.events.ready()
+        m.events.message("""{"type":"session.started"}""")
         pump()
         call.setMicrophoneEnabled(false)
         assertTrue(m.closed)
@@ -543,7 +788,7 @@ class LiveCallTest {
     fun losingTheConnectionOrThePairingEndsTheCall() {
         online()
         val (_, m) = answeredCall()
-        m.events.ready()
+        m.events.message("""{"type":"session.started"}""")
         pump()
         call.transportClosed()
         assertTrue(m.closed)

@@ -49,6 +49,9 @@ class LiveTaskLifecycleDeviceTest {
         }
     }
 
+    private fun delegation(id: String, text: String) = JSONObject().put("type", "delegation.created")
+        .put("item", JSONObject().put("id", id).put("content", org.json.JSONArray().put(JSONObject().put("text", text)))).toString()
+
     private fun await(description: String, timeoutMs: Long = 30_000, condition: () -> Boolean) {
         val deadline = SystemClock.elapsedRealtime() + timeoutMs
         while (SystemClock.elapsedRealtime() < deadline) {
@@ -114,9 +117,9 @@ class LiveTaskLifecycleDeviceTest {
                 val old = media.last()
                 val token = "hg7-${UUID.randomUUID()}"
                 Log.i("HermesLifecycleTest", "$teardown marker $token; ready ${core.callStatus.readyMs} ms")
-                old.events.delegation("task-$token",
+                old.events.message(delegation("task-$token",
                     "Use the terminal to run exactly: sleep 20; printf '$token\\n'; hostname. " +
-                        "Wait for completion and report the marker and hostname. Do not start a background job.")
+                        "Wait for completion and report the marker and hostname. Do not start a background job."))
                 await("Hermes acceptance") { core.callStatus.feedback == "Hermes is working; you can keep talking" }
                 await("task on screen") { screen(core) == "thinking" }
                 gadgetSpoke.set(false)
@@ -143,7 +146,7 @@ class LiveTaskLifecycleDeviceTest {
                     core.startCall()
                     await("fresh call") { core.callStatus.state == CallState.ACTIVE }
                     next = media.last()
-                    next.events.delegation("busy-$token", "Report the hostname")
+                    next.events.message(delegation("busy-$token", "Report the hostname"))
                     await("busy receipt") { core.callStatus.feedback == "Hermes is busy; wait, then ask again" }
                 }
                 // The host companion signals only after checking the actual

@@ -68,7 +68,7 @@ class SetupActivity : Activity() {
         }
         intent.getStringExtra("voice_mode")?.let { value ->
             val mode = VoiceMode.entries.find { it.value == value }
-            if (mode == null || !GadgetRuntime.setVoiceMode(this, mode)) Log.w(TAG, "voice_mode: use hermes; Live voice is not available yet")
+            if (mode == null || !GadgetRuntime.setVoiceMode(this, mode)) Log.w(TAG, "voice_mode: expected hermes or live; the choice could not be saved")
             finish()
             return
         }
@@ -143,16 +143,16 @@ class SetupActivity : Activity() {
         }
         val live = android.widget.RadioButton(this).apply {
             id = View.generateViewId()
-            setText(R.string.voice_mode_live_unavailable)
-            isEnabled = false
+            setText(R.string.voice_mode_live)
         }
         choices.addView(hermes)
         choices.addView(live)
         choices.check(if (GadgetRuntime.voiceMode(this) == VoiceMode.HERMES) hermes.id else live.id)
         choices.setOnCheckedChangeListener { _, checked ->
-            if (checked == hermes.id && !GadgetRuntime.setVoiceMode(this, VoiceMode.HERMES)) {
+            val mode = if (checked == live.id) VoiceMode.LIVE else VoiceMode.HERMES
+            if (GadgetRuntime.voiceMode(this) != mode && !GadgetRuntime.setVoiceMode(this, mode)) {
                 message.setText(R.string.voice_mode_save_failed)
-                choices.check(live.id)
+                choices.check(if (GadgetRuntime.voiceMode(this) == VoiceMode.HERMES) hermes.id else live.id)
             }
         }
         column.addView(choices)

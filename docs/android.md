@@ -72,7 +72,7 @@ The running microphone transfers to the recording without closing and reopening.
 
 If no request is heard within about five seconds, the phone discards it locally and shows **Didn't hear anything**. Swipe down or turn Microphone off to discard a wake request without sending any audio. A recording lasts at most 30 seconds. The initial energy detector requires 200 ms of speech, with an RMS floor of 50 PCM16 units and a threshold of three times its adaptive noise floor. Its first 240 ms are retained for STT but excluded from speech detection to avoid counting the wake's tail. These are initial settings; see the [device report](hardware-validation.md#oneplus-8t-hermes-voice-checks) for measured checks and limitations.
 
-A wake cannot answer an approval or question, replace a running turn, or record while disconnected, unpaired or holding the screen. The banner explains a refused wake. Wake listening pauses during Hermes's playback and resumes 500 ms after playback drains.
+In Hermes voice mode, a wake cannot answer an approval or question, replace a running turn, or record while disconnected, unpaired or holding the screen. In Live voice mode, it starts the call without pressing any approval control; on-screen approvals remain usable. The banner explains a refused wake. Wake listening pauses during Hermes's playback and resumes 500 ms after playback drains.
 
 The chip at the top of the screen shows who has the microphone:
 
@@ -108,15 +108,15 @@ It records each detection with its score, changes of the microphone's owner, and
 The settings screen has **Voice mode**, next to the Microphone control:
 
 - **Hermes voice** is the default: a wake records one request for Hermes's configured STT/TTS.
-- **Live voice** will make a wake start a [Live call](#live-calls). A wake can't start a call yet, so the option stays disabled. It can't be selected, including over adb, and never silently falls back to Hermes voice. Use **Start call** for a call in either mode.
+- **Live voice** makes a wake start a [Live call](#live-calls). Say "Hey Hermes", wait for the ready cue, then give your request. Audio heard before detection is discarded before WebRTC opens its microphone. A failed or unavailable call never changes the voice mode or falls back to Hermes voice. **Start call** works in either mode.
 
 The setting is saved before taking effect and survives app restarts, reboots and updates. Hold-to-talk is available in both modes. On a dedicated phone:
 
 ```bash
-adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es voice_mode hermes
+adb shell am start -W -n io.github.adolanium.hermesgadget/.AdbSetup --es voice_mode live   # or hermes
 ```
 
-Using `--es voice_mode live` reports that Live voice is unavailable and leaves the saved choice unchanged.
+Wait for the setting command to finish before launching another activity. The settings screen shows the saved choice.
 
 ## Live calls
 
@@ -140,15 +140,17 @@ On the host, a call needs:
 
 To call:
 
-1. Tap **Start call** at the bottom of the face. The button appears only while the phone is connected and paired and the host offers calls. Over adb: `adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es call start`.
+1. In **Live voice** mode, say "Hey Hermes", or tap **Start call** at the bottom of the face in either mode. The button appears only while the phone is connected and paired and the host offers calls. Over adb: `adb shell am start -n io.github.adolanium.hermesgadget/.AdbSetup --es call start`.
 2. Wait for the ready cue, two rising tones, then speak. The button shows **Connecting…** until then; tap it to give up.
-3. Tap **End call** to hang up (`--es call end`). The gadget stays connected, and wake listening resumes half a second later.
+3. Say **"Goodbye Hermes"** on its own, or tap **End call** (`--es call end`). Spoken hang-up waits about 3.5 seconds for the user utterance to settle. The gadget stays connected, and wake listening resumes half a second after media and the ready cue have stopped.
 
 The call takes the microphone and speaker from wake listening and the gadget. Wake listening stops and throws away what it heard, so nothing from before **Start call** is sent. Hold-to-talk records nothing during a call, and the gadget's spoken replies are silenced. The call's audio goes directly between the phone and the voice service over WebRTC, without passing through Hermes. The gateway only exchanges the connection details, over the gadget connection, so a phone that reaches the host over the LAN or Tailscale can call either way. The phone itself also needs internet access, because the call's audio goes to OpenAI. The phone uses Android's voice-communication microphone and plays the call on the loudspeaker. Where the phone has its own echo canceller and noise suppressor, the call uses them and WebRTC turns off its software ones; WebRTC's gain control and high-pass filter stay on. The ready cue plays outside WebRTC, so only the phone's own echo canceller keeps it out of the call. How well the loudspeaker is cancelled on a given phone is a measurement, not a setting. On the 8T, its own speech and the ready cue didn't reach the voice service, and speaking over the voice interrupted it; see the [echo report](hardware-validation.md#oneplus-8t-echo-and-interruption-checks).
 
 To interrupt the voice, talk over it. The voice service decides when you are interrupting and stops; on the 8T that took 0.7–2.8 seconds. Words spoken over the voice are sometimes lost, so if it asks what you said, say it again. The phone has no interrupt control of its own.
 
-A call ends with **End call**, **Microphone off**, a lost connection to Hermes, or unpairing the phone. A call that isn't ready 20 seconds after **Start call** fails. A failed or dropped call says why above the button and returns to wake listening. Nothing reconnects or retries on its own; tap **Start call** again. Each call starts with fresh spoken context. The phone's calls are independent of Hermes Desktop's Live Voice calls: the gateway runs its own copy of the plugin's call broker, so starting or ending one never touches the other.
+A call also ends after **60 seconds without recognized speech from either speaker**, measured from readiness or the latest voice-service transcript, when no Hermes turn observed by the phone is still processing and no call request is unresolved. Work from an earlier call also pauses the idle timer until its matching completion arrives. Task completion starts a fresh 60-second window so the voice can read the result. Spoken hang-up and **End call** still work while a task is pending; they do not cancel it. "Goodbye Hermes" must be the whole user utterance: model output, quoted text and a phrase inside another request do not hang up. Recognition depends on the voice service, which can miss speech during playback.
+
+**Microphone off**, a lost connection to Hermes, or unpairing the phone also ends a call. A call that isn't ready 20 seconds after **Start call** fails. A failed or dropped call says why above the button and returns to wake listening. Nothing reconnects or retries on its own; another wake in Live voice mode or **Start call** authorizes a fresh attempt. **Microphone off** overrides wake re-arming and remains off through restarts until explicitly enabled. If a completion was missed while disconnected, the phone conservatively keeps automatic idle hang-up paused; **End call** still works. Each call starts with fresh spoken context. The phone's calls are independent of Hermes Desktop's Live Voice calls: the gateway runs its own copy of the plugin's call broker, so starting or ending one never touches the other.
 
 During a call, ask for a task: for example, "Ask Hermes to check the current hostname and tell me the result." The voice hands it to the phone's existing gadget conversation in the host's selected profile. Hermes uses that conversation's normal task model and approval policy. The phone shows **Hermes is working; you can keep talking**; casual conversation stays in the call while Hermes works. Stories and small talk should be answered by the voice itself. If Hermes asks for approval, answer with the existing on-screen yes/no controls. Spoken approvals aren't supported.
 
@@ -215,7 +217,7 @@ Don't use `./gradlew connectedAndroidTest` on a configured gadget. It uninstalls
 
 ## Limits
 
-- Live calls can't start from a wake, or end on a spoken "Goodbye Hermes" or after a silence yet. Loudspeaker echo and interruption have been checked on the 8T at 1 m in a quiet room, with the phone flat and volume at maximum; other placements and conditions remain untested. Camera support is not included.
+- Spoken hang-up and inactivity detection use the voice service's transcripts; missed or delayed speech can delay hang-up or affect idle timing. Loudspeaker echo and interruption have been checked on the 8T at 1 m in a quiet room, with the phone flat and volume at maximum; other placements and conditions remain untested. Camera support is not included.
 - The APK carries native WebRTC for Live calls, which makes it about 23 MB larger.
 - Wake listening knows only "Hey Hermes", with English pronunciation. Its accuracy is measured on one phone, one speaker, and one room. The APK includes the wake models, which are licensed for non-commercial use only.
 - The display is the core's renderer at 360 pixels wide, scaled up with square pixels. The app runs in portrait.

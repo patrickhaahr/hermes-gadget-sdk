@@ -47,9 +47,8 @@ object GadgetRuntime {
         return if (saved == "live") VoiceMode.LIVE else VoiceMode.HERMES
     }
 
-    /** Unsupported Live is refused, with no fallback or change to the saved choice. */
+    /** The explicit voice choice persists; a failed Live call never changes it. */
     fun setVoiceMode(context: Context, mode: VoiceMode): Boolean {
-        if (mode == VoiceMode.LIVE) return false
         return context.applicationContext.getSharedPreferences("audio", Context.MODE_PRIVATE)
             .edit().putString("voice_mode", mode.value).commit()
     }
