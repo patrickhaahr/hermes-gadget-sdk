@@ -8,8 +8,9 @@ The Android client is experimental. CI builds the app and runs the device core
 through its JNI bridge on the build machine, with test doubles for the drivers;
 its wake tests run the real wake models with the TensorFlow Lite C library.
 Physical reports record [wake listening](#oneplus-8t-wake-listening-report),
-[Hermes voice requests](#oneplus-8t-hermes-voice-checks) and
-[Live calls](#oneplus-8t-live-call-checks) on a OnePlus 8T.
+[Hermes voice requests](#oneplus-8t-hermes-voice-checks),
+[Live calls](#oneplus-8t-live-call-checks) and their
+[echo and interruption](#oneplus-8t-echo-and-interruption-checks) on a OnePlus 8T.
 They do not cover the rest of the physical checklist.
 
 Firmware builds and simulator tests check software behavior. A physical verification report records what worked on a particular board revision, wiring, and firmware commit. A passing build alone does not establish that a microphone, power circuit, or display works on a device.
@@ -114,7 +115,31 @@ Test doubles and source checks, kept separate from the measurements above:
 - **Plugin:** `tests/test_hub_calls.py` runs raw paired-device clients against the real hub with a scripted broker. It covers admission, revocation, one call per device, stale answers after hang-up or the deadline, failed starts, independence between devices, a host without calls, and an unmodified simulator device on a calling host. `tests/test_adapter_hermes.py` adds the real Hermes adapter: only an explicit current approval admits a call, the adapter's profile is used and the device's own field ignored, and revocation ends the call. With `HERMES_LIVE_VOICE_DIR` set, it also loads the Live Voice module as the gateway does and runs it against that repository's fake `codex app-server`.
 - **Android host:** `LiveCallTest` (12 tests) drives the production `LiveCall` and `AudioCoordinator` with the device core over JNI and the real wake models. A scripted `CallMedia` stands in for WebRTC. The tests cover the hand-off before the offer, the offer's fields, the cue only after `session.started`, hang-up keeping the gadget, the 20 s deadline with a late answer ignored, server refusal, drops, stale events, refusals, Microphone off, and losing the connection or the pairing.
 
-Not covered: a person speaking to the phone at 1–3 m, the audibility of the ready cue, echo or self-interruption on the loudspeaker, user barge-in, screen-off calls, Tailscale, other phones, and other subscription plans.
+Not covered: a person speaking to the phone at 1–3 m, the audibility of the ready cue, echo or self-interruption on the loudspeaker, user barge-in, screen-off calls, Tailscale, other phones, and other subscription plans. The [echo and interruption checks](#oneplus-8t-echo-and-interruption-checks) below cover the loudspeaker and a person at 1 m.
+
+## OnePlus 8T echo and interruption checks
+
+Tested on 2026-10-09 for fork issue #5, with the same OnePlus 8T KB2005, /e/OS 3.1.1 (Android 14), device-owner kiosk setup and LAN pairing as the [Live call checks](#oneplus-8t-live-call-checks). The host was zaza: Hermes v0.21.6 (`818c13be`), codex-cli 0.160.0 on a ChatGPT Plus plan, the gadget plugin from `7170ee3`, and talk-desktop at `6ec9a6d`. The phone lay flat on a table in a quiet room. The tester spoke from about 1 m. The voice-call volume on the loudspeaker was 9 of 9, the volume the owner chose. The tester heard the replies clearly.
+
+The measured calls ran `7170ee3` with temporary instrumentation that isn't part of this change. It logged the call's data-channel events with their transcripts, so echo could be told from the tester's speech. It also logged the microphone level every 250 ms after the phone's audio processing, and the voice's playback level every 200 ms from WebRTC's statistics. In two calls the phone itself asked the voice for a long story through the data channel, so it spoke without a person asking. The instrumented build and its logs were then deleted, and this change was installed in place with the original signing key (APK SHA-256 `9d305fae7e2f2720d0c8c2014e5331372f18fa6939b02e3d7f7ec827987b1528`). A short call on that build logged the new audio configuration and microphone peak lines.
+
+| Check | Result |
+|---|---|
+| Audio path | The recorder used `VOICE_COMMUNICATION` with the phone's echo canceller and noise suppressor. WebRTC logged `Disabling EC since built-in EC will be used instead` and the same for noise suppression, so WebRTC's software echo canceller is off on the 8T. Its gain control and high-pass filter stay on. Calls played on the loudspeaker in `MODE_IN_COMMUNICATION`. |
+| The voice alone | In a call where nobody spoke, the voice told a story for 30 s and finished it. No user turn or input transcript arrived. The microphone level during the story averaged −89.7 dBFS, the processing's floor, and its loudest 250 ms reached −75 dBFS. In another call, the voice spoke for 23 s before the first interruption, with no user turn. |
+| Ready cue | In the five instrumented calls, the 250 ms windows covering the cue were at the −90 dBFS floor, and no user turn followed the cue. The cue plays outside WebRTC, so this rests on the phone's own echo canceller. |
+| False user turns | None. Over five instrumented calls, every user turn matched something the tester said. |
+| Speaking over the voice | The tester's speech reached the call at mostly −20 to −45 dBFS per 250 ms while the voice played. |
+| Deliberate interruptions | 7 over three calls. All 7 stopped the voice: 5 mid-sentence, and 2 at the end of a sentence, after which it answered instead of continuing the story. The voice went quiet 0.7, 1.4, 1.7, 2.1, 2.2, 2.3 and 2.8 s after the tester started speaking. The service's user turn arrived about when the voice stopped. In 5 the question was understood the first time, and the answers were right (sky colour, a spider's legs, two plus two, grass colour, days in a week). In 2, the words spoken over the voice were lost: one came out as "but, karl" and in the other the voice asked "Sorry, what was that?". The tester repeated them. One interruption lost its first word ("Stop."). |
+| Clipping | The first request of one call, spoken 2.4 s after the cue, lost its first words ("Tell me a"). Other requests spoken while the voice was silent were transcribed whole. |
+| Desktop call during phone interruptions | An aiortc client with a silent microphone held a desktop-style call through the broker code in its own process and app-server. It told one story for 80 s while the tester interrupted the phone twice. The desktop call had no user turns, and its story ran to the end. |
+| Interruption control | The phone sends no interrupt over the gadget connection, and the gateway has no phone interrupt route. The service stops the voice when the user talks. The desktop's `/codexlive/interrupt` route stays scoped to its own call (`test_overlapping_calls_are_independent` in hermes-live-voice) and doesn't stop speech on codex 0.160.0. |
+
+The voice model twice treated "Tell me a long story about …" as a Hermes task and answered with the "tasks aren't available in phone calls yet" notice. Fork issue #6 covers that.
+
+Test doubles, kept separate from the measurements above: `LiveCallTest` uses a scripted `CallMedia`, so it can't test echo or interruption. The phone has no interruption logic of its own to test.
+
+Not covered: speaking from 2–3 m, a noisy room, the phone upright or on a stand, other volumes, screen-off calls, Tailscale, other phones and plans, or a desktop call with a person speaking. Seven interruptions don't give a reliable failure rate for lost words. The phone stays experimental.
 
 ## Waveshare 1.85C V2 partial physical report
 

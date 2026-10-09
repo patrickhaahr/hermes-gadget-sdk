@@ -22,6 +22,8 @@ import org.webrtc.audio.JavaAudioDeviceModule
 import java.nio.charset.StandardCharsets
 import java.util.Timer
 import kotlin.concurrent.fixedRateTimer
+import kotlin.math.abs
+import kotlin.math.log10
 
 /** Creates [WebRtcCallMedia] for each call. */
 class WebRtcCalls(context: Context) : CallMediaFactory {
@@ -54,18 +56,23 @@ class WebRtcCalls(context: Context) : CallMediaFactory {
  * One Live call over native WebRTC, as the Live Voice desktop client makes it: the
  * microphone track plus an `oai-events` data channel in one offer, and the remote
  * voice played as it arrives. The audio path is the phone's communication path:
- * the voice-communication microphone source with the platform's echo canceller and
- * noise suppressor where it has them, WebRTC's own audio processing, and playback
- * on the loudspeaker in communication mode. That the echo cancellation is good
+ * the voice-communication microphone source and playback on the loudspeaker in
+ * communication mode. Where the phone has its own echo canceller and noise
+ * suppressor, they are used and WebRTC switches off its software ones; WebRTC's
+ * gain control and high-pass filter stay on. That the echo cancellation is good
  * enough on a given phone is a physical measurement (docs/hardware-validation.md).
  */
 class WebRtcCallMedia(context: Context, private val events: CallMediaEvents) : CallMedia {
     private val audioManager = context.getSystemService(AudioManager::class.java)
     private val savedMode = audioManager.mode
+    private val platformAec = JavaAudioDeviceModule.isBuiltInAcousticEchoCancelerSupported()
+    private val platformNs = JavaAudioDeviceModule.isBuiltInNoiseSuppressorSupported()
+    @Volatile private var micPeak = 0 // loudest captured sample since the last stats line
     private val adm = JavaAudioDeviceModule.builder(context)
         .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
-        .setUseHardwareAcousticEchoCanceler(JavaAudioDeviceModule.isBuiltInAcousticEchoCancelerSupported())
-        .setUseHardwareNoiseSuppressor(JavaAudioDeviceModule.isBuiltInNoiseSuppressorSupported())
+        .setUseHardwareAcousticEchoCanceler(platformAec)
+        .setUseHardwareNoiseSuppressor(platformNs)
+        .setSamplesReadyCallback { samples -> notePeak(samples.data) }
         .setAudioAttributes(AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -97,6 +104,8 @@ class WebRtcCallMedia(context: Context, private val events: CallMediaEvents) : C
     private var stats: Timer? = null
 
     init {
+        Log.i(TAG, "audio: voice-communication microphone, ${if (platformAec) "the phone's" else "WebRTC's"} echo canceller, " +
+            "${if (platformNs) "the phone's" else "WebRTC's"} noise suppressor, loudspeaker")
         routeToLoudspeaker()
         val config = PeerConnection.RTCConfiguration(emptyList()).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
@@ -160,21 +169,38 @@ class WebRtcCallMedia(context: Context, private val events: CallMediaEvents) : C
         }
     }
 
-    /** Bytes each way and the microphone's level: evidence that capture and playback ran. */
+    /**
+     * Bytes each way and the loudest captured sample: evidence that capture and
+     * playback ran, and how much of the loudspeaker the echo canceller left. (The
+     * stats' own microphone level stays 0 with the phone's audio processing.)
+     */
     private fun logStats(label: String) = synchronized(this) {
-        if (ready && !closed) peer.getStats { report ->
-            var sent = 0L
-            var received = 0L
-            var level: Any? = null
-            for (s in report.statsMap.values) {
-                when (s.type) {
-                    "outbound-rtp" -> sent += (s.members["bytesSent"] as? Number)?.toLong() ?: 0
-                    "inbound-rtp" -> received += (s.members["bytesReceived"] as? Number)?.toLong() ?: 0
-                    "media-source" -> level = s.members["audioLevel"]
+        if (ready && !closed) {
+            val peak = micPeak
+            micPeak = 0
+            peer.getStats { report ->
+                var sent = 0L
+                var received = 0L
+                for (s in report.statsMap.values) {
+                    when (s.type) {
+                        "outbound-rtp" -> sent += (s.members["bytesSent"] as? Number)?.toLong() ?: 0
+                        "inbound-rtp" -> received += (s.members["bytesReceived"] as? Number)?.toLong() ?: 0
+                    }
                 }
+                val level = if (peak == 0) "silent" else "%.0f dBFS".format(20 * log10(peak / 32768.0))
+                Log.i(TAG, "$label: sent ${sent / 1024} KB, received ${received / 1024} KB, microphone peak $level")
             }
-            Log.i(TAG, "$label: sent ${sent / 1024} KB, received ${received / 1024} KB, microphone level $level")
         }
+    }
+
+    /** Called on the recording thread with each 10 ms of captured 16-bit PCM. */
+    private fun notePeak(pcm: ByteArray) {
+        var peak = micPeak
+        for (i in 0 until pcm.size - 1 step 2) {
+            val sample = abs((pcm[i].toInt() and 0xff) or (pcm[i + 1].toInt() shl 8))
+            if (sample > peak) peak = sample
+        }
+        micPeak = peak
     }
 
     private inner class Observer : PeerConnection.Observer {
